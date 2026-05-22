@@ -24,7 +24,6 @@ On every fire:
 
 Guarantees:
 - atomic writes (temp + ``os.replace``);
-- single-writer lock per session (``.claude/sessions/<session_id>.lock``);
 - idempotent: re-fires on unchanged JSONL are no-ops;
 - chapter-safe: files shared by multiple ``index.json`` entries are left
   untouched (owned by a downstream merger);
@@ -35,16 +34,12 @@ Errors are logged to stderr; the process always exits 0.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
 import sys
-import time
-from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -84,10 +79,6 @@ INDEX_KEY_VERSION = "schema_version"
 # SessionStateFile schema
 STATE_KEY_FOLDER = "session_folder"
 STATE_KEY_FIRST_PROMPT_ID = "first_prompt_id"
-
-# Lock acquisition
-LOCK_TIMEOUT_SECONDS = 30.0
-LOCK_POLL_INTERVAL_SECONDS = 0.1
 
 # Logging
 LOG_PREFIX = "[igor:stop]"
@@ -134,7 +125,7 @@ def _log(msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Atomic write + file lock
+# Atomic write
 # ---------------------------------------------------------------------------
 
 
@@ -147,36 +138,6 @@ def _atomic_write_text(path: Path, content: str) -> None:
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-
-@contextmanager
-def _file_lock(lock_path: Path, timeout: float = LOCK_TIMEOUT_SECONDS) -> Iterator[None]:
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
-    try:
-        deadline = time.monotonic() + timeout
-        acquired = False
-        while True:
-            try:
-                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                acquired = True
-                break
-            except BlockingIOError:
-                if time.monotonic() >= deadline:
-                    break
-                time.sleep(LOCK_POLL_INTERVAL_SECONDS)
-        if not acquired:
-            raise TimeoutError(f"failed to acquire {lock_path} within {timeout}s")
-        yield
-    finally:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError:
-            pass
-        try:
-            os.close(fd)
         except OSError:
             pass
 
@@ -672,56 +633,52 @@ def main() -> int:
         return 0
     sessions_dir = context_root / ".claude" / "sessions"
     state_path = sessions_dir / f"{session_id}.json"
-    lock_path = sessions_dir / f"{session_id}.lock"
 
     try:
-        with _file_lock(lock_path):
-            entries = _load_entries(Path(transcript_path))
-            turns = build_turns(entries)
-            if not turns:
-                # nothing to record yet (e.g., a ghost stop with empty JSONL)
-                return 0
+        entries = _load_entries(Path(transcript_path))
+        turns = build_turns(entries)
+        if not turns:
+            # nothing to record yet (e.g., a ghost stop with empty JSONL)
+            return 0
 
-            state = _read_json(state_path) if state_path.exists() else None
+        state = _read_json(state_path) if state_path.exists() else None
+        if state is None:
+            state = _bootstrap_state(state_path, context_root, turns)
             if state is None:
-                state = _bootstrap_state(state_path, context_root, turns)
-                if state is None:
-                    return 0
-
-            session_folder = Path(state.get(STATE_KEY_FOLDER, ""))
-            transcript_folder = session_folder / "transcript"
-            index_path = transcript_folder / "index.json"
-
-            if not index_path.exists():
-                # SessionStateFile pointed to a folder whose scaffold is gone;
-                # rebuild from the same path.
-                if not _ensure_session_scaffold(session_folder):
-                    return 0
-
-            index = _read_json(index_path)
-            if index is None:
                 return 0
 
-            written: list[dict] = index.get(INDEX_KEY_TURNS, [])
-            shared = _compute_shared_files(written)
+        session_folder = Path(state.get(STATE_KEY_FOLDER, ""))
+        transcript_folder = session_folder / "transcript"
+        index_path = transcript_folder / "index.json"
 
-            c1 = _reconcile_existing(written, turns, transcript_folder, shared)
-            c2 = _append_new_turns(written, turns, transcript_folder)
-            if not (c1 or c2):
+        if not index_path.exists():
+            # SessionStateFile pointed to a folder whose scaffold is gone;
+            # rebuild from the same path.
+            if not _ensure_session_scaffold(session_folder):
                 return 0
 
-            index[INDEX_KEY_TURNS] = written
-            index[INDEX_KEY_NEXT] = len(written)
-            index.setdefault(INDEX_KEY_VERSION, INDEX_SCHEMA_VERSION)
-            try:
-                _atomic_write_text(
-                    index_path,
-                    json.dumps(index, indent=2, ensure_ascii=False) + "\n",
-                )
-            except OSError as e:
-                _log(f"failed to update {index_path}: {e}")
-    except TimeoutError as e:
-        _log(str(e))
+        index = _read_json(index_path)
+        if index is None:
+            return 0
+
+        written: list[dict] = index.get(INDEX_KEY_TURNS, [])
+        shared = _compute_shared_files(written)
+
+        c1 = _reconcile_existing(written, turns, transcript_folder, shared)
+        c2 = _append_new_turns(written, turns, transcript_folder)
+        if not (c1 or c2):
+            return 0
+
+        index[INDEX_KEY_TURNS] = written
+        index[INDEX_KEY_NEXT] = len(written)
+        index.setdefault(INDEX_KEY_VERSION, INDEX_SCHEMA_VERSION)
+        try:
+            _atomic_write_text(
+                index_path,
+                json.dumps(index, indent=2, ensure_ascii=False) + "\n",
+            )
+        except OSError as e:
+            _log(f"failed to update {index_path}: {e}")
     except Exception as e:
         _log(f"unexpected error: {e!r}")
 

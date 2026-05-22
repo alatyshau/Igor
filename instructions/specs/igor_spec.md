@@ -37,11 +37,11 @@ Seven section blocks in the order below, separated by three visual register bann
   ## On Session Start
   ## On Reading User Input
   ## On Touching Entities
+  ## On Composing the Message
   ## On Recognizing a Milestone
   ## On Catching a Mistake or Improvement Idea
   ## On Proposing Objective Closure
   ## On Producing Output
-  ## On Closing the Message
 
 ═════ REFERENCE ═════
   ## Operations

@@ -33,7 +33,7 @@ Indices are file-local and sequential within each type (`I01`, `I02`, …).
 
 ## `index.md` structure
 
-Minimal, Jira-style ticket. Four mandatory sections; nothing else.
+Minimal, Jira-style ticket. Five required sections (`WHAT`, `WHY`, `PROGRESS`, `Items`, `User Notes`); nothing else.
 
 1. **Header:** `# OBJxxx <Slug>`.
 
@@ -49,7 +49,13 @@ Minimal, Jira-style ticket. Four mandatory sections; nothing else.
 
 4. **`## WHY`** — the motivation: what problem this Objective addresses, what stakeholder need it serves, what made it worth pursuing now. One to a few paragraphs.
 
-5. **`## Items`** — flat list of all sub-entities (I, S, T) attached to this Objective, both active and resolved, in one stream. State is in the prefix tag. `*пусто*` if none.
+5. **`## PROGRESS`** — distilled narrative of work accomplished on this Objective across sessions: what was done, what shifted, what crystallized. Primary continuity surface — read by future sessions to pick up the OBJ without re-reading transcripts or chasing across protocols.
+
+   Style: clear, brief narrative in the user's voice; one paragraph per significant outcome; not a bullet list, not an engineering log. The test for an entry is "returning from vacation": a reader opening this OBJ two weeks from now, with no fresh memory, should understand what happened and how we got to where we are. Convention and examples — see [`Duet-Instructions.git/agents/vizir.md`](../../../Duet-Instructions.git/agents/vizir.md) §Writing ЧТО СДЕЛАНО.
+
+   Order: chronological — top is the earliest entry, bottom is the latest. New entries are appended at the bottom.
+
+6. **`## Items`** — flat list of all sub-entities (I, S, T) attached to this Objective, both active and resolved, in one stream. State is in the prefix tag. `*пусто*` if none.
 
    Format per line:
    ```
@@ -61,7 +67,7 @@ Minimal, Jira-style ticket. Four mandatory sections; nothing else.
 
    The tag `[CODE STATE]` encodes the type (`I`/`S`/`T`), the local index, and the current state. Resolved items stay in the same list (no separate History section) so the full lifecycle of an Objective is read in one place, top to bottom by index.
 
-6. **`## User Notes`** — **mandatory**, default content `*пусто*`. The content belongs to the user. The agent never modifies or deletes it.
+7. **`## User Notes`** — **mandatory**, default content `*пусто*`. The content belongs to the user. The agent never modifies or deletes it.
 
 Substantive content (long rationale, accumulated working knowledge, drafts, schemas) does **not** live inline in `index.md`. It either folds into `## WHY` (when it concerns motivation), gets captured as resolved Items, or is written as a sibling **ObjectiveArtifact** file in the same folder (see below).
 

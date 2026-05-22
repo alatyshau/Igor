@@ -72,7 +72,6 @@ The skill operates in two modes:
 - **Create.** Protocol file does not exist. Generate the full structure based on session content up to this point.
 - **Update.** Protocol file exists. Append new chapters that reflect work since the last update. Refresh `## Abstract` only if scope shifted materially.
 
-In both modes, do not rewrite earlier chapters unless explicitly directed.
 
 ## Source material
 

@@ -6,8 +6,8 @@ Run from this directory:
     python3 -m unittest test_stop.py -v
 
 These tests cover content rendering, turn detection, body construction, and
-reconciliation decision logic. They do not exercise filesystem I/O, hook
-plumbing, or locking.
+reconciliation decision logic. They do not exercise filesystem I/O or hook
+plumbing.
 """
 
 from __future__ import annotations
