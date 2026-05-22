@@ -80,9 +80,10 @@ Non-blocking references to other Objectives (e.g., "this Objective builds on dec
 
 The form rules below are not stylistic — they are guards against the AI's default tendency to bloat the `Выходы` section. Each rule deflects a specific bloat pattern; removing it would silently reintroduce that pattern.
 
-| Rule | Bloat pattern it deflects |
+| Rule | Failure mode it deflects |
 |---|---|
-| **Form, not content.** Each `Выход` is **action + target** (verb + path): *"Rewrite `igor.md`"* — yes; *"Entity-spec block inside `igor.md`"* — no. | "Let me describe what's inside the artifact." |
+| **Form, not content.** Each `Выход` is **action + target** (verb + noun-phrase): *"Rewrite `igor.md`"* — yes; *"Entity-spec block inside `igor.md`"* — no. | "Let me describe what's inside the artifact." |
+| **Specific enough to recognize.** *"MCP-сервер для операций над сущностями"* — yes; *"MCP-сервер"* (which server, for what?) — no. The reader must be able to name the delivery from the line alone. | "Let me hide the delivery target under a bare abstract noun." |
 | **Uncertainty markers without elaboration.** *"Not sure: whether an additional X is needed"* — yes; *"…with such-and-such details"* — no. | "Let me justify why I'm uncertain." |
 | **Many similar files → abstract them.** *"Update component X"* instead of listing 50 files. | "Let me enumerate every file I'll touch." |
 | **An OBJ file itself is not a `Выход`.** It is a tracking record, not a deliverable. | "Track this goal" listed as a deliverable — self-reference. |
@@ -99,6 +100,25 @@ These are an instance of the broader anti-fluff principle: before writing a frag
 
 **Empty marker:**
 `*пусто*`.
+
+## Prose language
+
+OBJ files are written in Russian for narrative content — `**Цель:**` text, `**Выходы:**` items, `## WHY` paragraphs, and item descriptions in `## Items`. Avoid anglicisms where natural Russian exists:
+
+| Anglicism | Russian |
+|---|---|
+| деплой | развёртывание, установка |
+| персистенция | сохранение |
+| скоуп | охват, границы |
+| клозур | закрытие |
+| воркфлоу | цикл работы |
+| мерж | слияние |
+
+Loan words that have entered standard Russian dev usage are acceptable: хук, индексер, сессия, транскрипт, спецификация, домен, скилл, бэкап, кэш.
+
+Identifiers stay in canonical form regardless of surrounding prose language: OBJ/Sub-entity codes (`OBJ001`, `T02`), slugs (CamelCase / snake_case), file paths, technical proper nouns (`Cockpit`, `MCP`, `Claude Code`).
+
+This is the inverse of the rule for skill files (`Igor.source.git/instructions/skills/`) — those are written in native English.
 
 ## Single-file scoping
 

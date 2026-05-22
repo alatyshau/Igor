@@ -8,6 +8,8 @@ Chat-specific phenomena: ephemeral entities, name resolution, event syntax, and 
 
 `P1..P9` — numbered only within the current chat. Problems are ephemeral and never persisted to disk, so numbering resets per chat.
 
+**Canceled Problems free their slot.** The 9-limit counts only **active** Problems (any non-terminal state — `draft` or `open`). When a Problem is canceled or triaged away, its slot becomes reusable. The limit exists to cap cognitive load, not historical record.
+
 Sub-entities attached to a Problem use the form `Pn.<Letter><index>` — e.g., `P3.I01`, `P3.S02`, `P3.T01`. These too are ephemeral; on triage they transfer to the triage destination (see `domain-model.md` §2.4).
 
 At `P7`, the agent emits an easter egg: ASCII art with a short poetic warning about approaching the limit, generated fresh each time (no stored template, no repetition of prior renditions).
