@@ -38,7 +38,7 @@ function tool(name: string): { handler: LooseHandler } {
   return { handler: t.handler as unknown as LooseHandler };
 }
 
-test("objective_create: allocates code, creates folder + index.md", async () => {
+test("objective_create: allocates code, creates folder + index.md (default state=open)", async () => {
   const { ctx, cleanup } = await makeContext();
   try {
     const index = await buildObjIndex(ctx);
@@ -49,12 +49,21 @@ test("objective_create: allocates code, creates folder + index.md", async () => 
         outputs: ["Do thing A.", "Do thing B."],
         why: "Because reasons.",
         blocked_by: [],
+        initial_state: "open",
       },
       { ctx, index },
-    )) as { code: string; folder_path: string; index_path: string };
+    )) as { code: string; folder_path: string; index_path: string; state: string };
 
     assert.equal(result.code, "OBJ000");
+    assert.equal(result.state, "open");
     assert.match(result.folder_path, /OBJ000_FirstObj$/);
+    // active OBJs live at the top of objectives/, not in any subdir
+    assert.ok(
+      !result.folder_path.includes("/backlog/") &&
+        !result.folder_path.includes("/closed/") &&
+        !result.folder_path.includes("/cancelled/"),
+      `expected active folder, got ${result.folder_path}`,
+    );
 
     const indexMd = await fs.readFile(result.index_path, "utf8");
     assert.match(indexMd, /^# OBJ000 FirstObj$/m);
@@ -63,6 +72,85 @@ test("objective_create: allocates code, creates folder + index.md", async () => 
     assert.match(indexMd, /^- Do thing A\.$/m);
     assert.match(indexMd, /^## WHY$/m);
     assert.match(indexMd, /^Because reasons\.$/m);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("objective_create: initial_state=backlog places folder in backlog/ directly", async () => {
+  const { ctx, cleanup } = await makeContext();
+  try {
+    const index = await buildObjIndex(ctx);
+    const result = (await tool("objective_create").handler(
+      {
+        slug: "Deferred",
+        goal: "Later work",
+        outputs: [],
+        why: "",
+        blocked_by: [],
+        initial_state: "backlog",
+      },
+      { ctx, index },
+    )) as { code: string; folder_path: string; index_path: string; state: string };
+
+    assert.equal(result.state, "backlog");
+    assert.match(result.folder_path, /\/backlog\/OBJ000_Deferred$/);
+
+    const indexMd = await fs.readFile(result.index_path, "utf8");
+    assert.match(indexMd, /^\*\*State:\*\* backlog$/m);
+  } finally {
+    await cleanup();
+  }
+});
+
+test("objective_create: initial_state=draft stays in active dir", async () => {
+  const { ctx, cleanup } = await makeContext();
+  try {
+    const index = await buildObjIndex(ctx);
+    const result = (await tool("objective_create").handler(
+      {
+        slug: "DraftObj",
+        goal: "g",
+        outputs: [],
+        why: "",
+        blocked_by: [],
+        initial_state: "draft",
+      },
+      { ctx, index },
+    )) as { folder_path: string; state: string };
+
+    assert.equal(result.state, "draft");
+    assert.ok(
+      !result.folder_path.includes("/backlog/"),
+      `expected active folder for draft, got ${result.folder_path}`,
+    );
+  } finally {
+    await cleanup();
+  }
+});
+
+test("objective_create: terminal initial_state (closed/canceled) is rejected", async () => {
+  const { ctx, cleanup } = await makeContext();
+  try {
+    const index = await buildObjIndex(ctx);
+    for (const bad of ["closed", "canceled"]) {
+      await assert.rejects(
+        () =>
+          tool("objective_create").handler(
+            {
+              slug: `Bad_${bad}`,
+              goal: "g",
+              outputs: [],
+              why: "",
+              blocked_by: [],
+              initial_state: bad,
+            },
+            { ctx, index },
+          ),
+        /invalid initial_state/,
+        `expected rejection for initial_state=${bad}`,
+      );
+    }
   } finally {
     await cleanup();
   }

@@ -45,9 +45,10 @@ test("Sub-entity states are type-scoped", () => {
   assert.equal(isValidStateForType("I", "canceled"), true);
   assert.equal(isValidStateForType("I", "confirmed"), false);
 
-  // Suggestion
+  // Suggestion — `declined` was collapsed into `canceled` per domain-model.md §1.4
   assert.equal(isValidStateForType("S", "confirmed"), true);
-  assert.equal(isValidStateForType("S", "declined"), true);
+  assert.equal(isValidStateForType("S", "canceled"), true);
+  assert.equal(isValidStateForType("S", "declined"), false);
   assert.equal(isValidStateForType("S", "closed"), false);
 
   // Task

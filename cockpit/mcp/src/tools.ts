@@ -15,8 +15,11 @@ import {
 } from "./code.js";
 import { assertValidSlug } from "./slug.js";
 import {
+  isValidInitialObjectiveState,
   isValidStateForType,
   objectiveSubdir,
+  VALID_INITIAL_OBJECTIVE_STATES,
+  type InitialObjectiveState,
   type ObjectiveState,
 } from "./state.js";
 import {
@@ -80,8 +83,9 @@ function fail(message: string): CallToolResult {
 const objectiveCreate = makeTool({
   name: "objective_create",
   description:
-    "Allocate the next OBJxxx code and create its folder + index.md skeleton. " +
-    "Returns the assigned code and folder path.",
+    "Allocate the next OBJxxx code and create its folder + index.md skeleton " +
+    "directly in the subfolder matching `initial_state` (active for draft/open, " +
+    "`backlog/` for backlog). Returns the assigned code and folder path.",
   shape: {
     slug: z.string().describe("CamelCase or snake_case; no dashes or dots."),
     goal: z.string().describe("Цель — desired outcome, one paragraph."),
@@ -92,9 +96,24 @@ const objectiveCreate = makeTool({
     blocked_by: z.array(z.string()).default([]).describe(
       "OBJ codes that must reach a terminal state before this one can close.",
     ),
+    initial_state: z
+      .enum(VALID_INITIAL_OBJECTIVE_STATES)
+      .default("open")
+      .describe(
+        "Initial state: `draft` (parked), `open` (active), or `backlog` (deferred). " +
+          "Terminal states (`closed`, `canceled`) are not valid initial states — " +
+          "they can only be reached via transitions.",
+      ),
   },
-  handler: async ({ slug, goal, outputs, why, blocked_by }, deps) => {
+  handler: async ({ slug, goal, outputs, why, blocked_by, initial_state }, deps) => {
+    // Robust to direct invocation that bypasses Zod's `.default("open")`.
+    const requested = initial_state ?? "open";
     assertValidSlug(slug);
+    if (!isValidInitialObjectiveState(requested)) {
+      throw new Error(
+        `invalid initial_state "${requested}"; expected one of: ${VALID_INITIAL_OBJECTIVE_STATES.join(", ")}`,
+      );
+    }
     if (deps.index.bySlug.has(slug)) {
       throw new Error(`slug "${slug}" already in use by ${deps.index.bySlug.get(slug)}`);
     }
@@ -105,11 +124,17 @@ const objectiveCreate = makeTool({
     }
 
     const code = nextObjectiveCode(deps.index);
-    const folderPath = path.join(deps.ctx.objectivesDir, `${code}_${slug}`);
+    const state = requested as InitialObjectiveState;
+    const subdir = objectiveSubdir(state);
+    const parentDir = subdir
+      ? path.join(deps.ctx.objectivesDir, subdir)
+      : deps.ctx.objectivesDir;
+    await fs.mkdir(parentDir, { recursive: true });
+    const folderPath = path.join(parentDir, `${code}_${slug}`);
     const indexPath = await writeObjIndexMd(folderPath, {
       code,
       slug,
-      state: "open" as ObjectiveState,
+      state: state as ObjectiveState,
       goal,
       outputs,
       why,
@@ -119,14 +144,14 @@ const objectiveCreate = makeTool({
     const meta: ObjMeta = {
       code,
       slug,
-      state: "open",
+      state,
       blockedBy: [...blocked_by],
       folderPath,
     };
     deps.index.byCode.set(code, meta);
     deps.index.bySlug.set(slug, code);
 
-    return { code, folder_path: folderPath, index_path: indexPath };
+    return { code, folder_path: folderPath, index_path: indexPath, state };
   },
 });
 
@@ -268,7 +293,7 @@ const subEntitySetState = makeTool({
   name: "sub_entity_set_state",
   description:
     "Transition a sub-entity's state. Validates the target state against the entity type's " +
-    "state machine (Issue → closed|canceled, Suggestion → confirmed|declined|canceled, Task → closed|canceled). " +
+    "state machine (Issue → closed|canceled, Suggestion → confirmed|canceled, Task → closed|canceled). " +
     "Works for both Objective-parented and Problem-parented sub-entities.",
   shape: {
     parent: z.string(),

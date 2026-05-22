@@ -24,9 +24,10 @@ export function objectiveSubdir(state: ObjectiveState): string | null {
   }
 }
 
-// Sub-entity states per type.
+// Sub-entity states per type. Per domain-model.md §1.4, Suggestion has no
+// `declined` state — active reject and silent withdrawal both map to `canceled`.
 const ISSUE_STATES = ["open", "closed", "canceled"] as const;
-const SUGGESTION_STATES = ["open", "confirmed", "declined", "canceled"] as const;
+const SUGGESTION_STATES = ["open", "confirmed", "canceled"] as const;
 const TASK_STATES = ["open", "closed", "canceled"] as const;
 
 export type IssueState = (typeof ISSUE_STATES)[number];
@@ -50,5 +51,16 @@ export function isValidStateForType(type: SubEntityType, state: string): boolean
 }
 
 export function isTerminalSubState(state: string): boolean {
-  return ["closed", "canceled", "confirmed", "declined"].includes(state);
+  return ["closed", "canceled", "confirmed"].includes(state);
+}
+
+// Initial states allowed for objective_create. Terminal states (closed,
+// canceled) cannot be the *initial* state — they are only reached via
+// transition from an active state with proper preconditions (closure ritual,
+// cascade, etc.).
+export const VALID_INITIAL_OBJECTIVE_STATES = ["draft", "open", "backlog"] as const;
+export type InitialObjectiveState = (typeof VALID_INITIAL_OBJECTIVE_STATES)[number];
+
+export function isValidInitialObjectiveState(s: string): s is InitialObjectiveState {
+  return (VALID_INITIAL_OBJECTIVE_STATES as readonly string[]).includes(s);
 }

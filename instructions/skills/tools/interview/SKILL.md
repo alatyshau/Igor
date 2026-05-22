@@ -42,6 +42,10 @@ The interview ends when any of these is true:
   The user may push back ("не достаточно, продолжай") — in that case the state reverts to `draft` and the interview continues.
 - The user reframes the conversation away from this Objective. Do not drag the interview along; let it end.
 
+## Closing ritual
+
+At interview close, emit a one-line congratulation with fresh emojis — never templated.
+
 ## Anti-patterns
 
 - **Multi-question messages.** A single agent turn holding two questions, or a list of clarifications. Pick one.
