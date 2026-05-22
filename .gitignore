@@ -1,0 +1,21 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Test artifacts (in case stray paths leak into the repo)
+/cockpit/hooks/journal/
+/cockpit/hooks/.claude/
+
+# Node / TS (for cockpit/mcp/ later)
+node_modules/
+dist/
+build/
+*.tsbuildinfo
