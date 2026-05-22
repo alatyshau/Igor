@@ -1,0 +1,25 @@
+{
+  "name": "igor-cockpit-mcp",
+  "version": "0.1.0",
+  "description": "MCP server for Igor.cockpit — domain operations on Objectives, sub-entities, and sessions.",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/src/index.js",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test --no-warnings 'dist/test/**/*.test.js'"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "private": true
+}

@@ -28,13 +28,14 @@ The cockpit ships as three components inside one source repo, plus a deploy step
 Igor.source.git/
   cockpit/
     specs/                         ← design specs (domain-model, schemas, architecture)
-    mcp/                           ← MCP server (TypeScript, bun)
+    mcp/                           ← MCP server (TypeScript, Node v22+)
       package.json
       tsconfig.json
       src/
         index.ts                   ← entry point
         domain/                    ← typed model (Objective, SubEntity, Session, …)
         tools/                     ← MCP tool implementations
+      dist/                        ← tsc build output (committed or built at install)
     hooks/                         ← Claude Code hooks (Python)
       stop.py                      ← single self-bootstrapping hook
       test_stop.py                 ← unit tests (stdlib unittest)
@@ -58,7 +59,7 @@ The split is deliberate:
 
 - **Transport:** `stdio` (Claude Code spawns the MCP as a child process per session).
 - **Scoping:** **per-context, per-session.** The MCP inherits `cwd` from the parent Claude Code process (the ContextFolder root) and `CLAUDE_CODE_SESSION_ID` as an env var (Claude Code injects it into every spawned subprocess automatically). To operate on the current session's `state.md`, MCP reads `./.claude/sessions/<CLAUDE_CODE_SESSION_ID>.json` (the SessionStateFile, maintained by the Stop hook) lazily on first state.md operation and follows its `session_folder` field. The MCP reads and writes `./objectives/` and that session's `state.md`. Historical journal is not touched. If the SessionStateFile does not exist yet (pre-first-hook-fire), MCP returns a recoverable error — the operation succeeds once the hook has run.
-- **Stack:** TypeScript with the official `@modelcontextprotocol/sdk`. Run via `bun` for fast startup (~50ms).
+- **Stack:** TypeScript with the official `@modelcontextprotocol/sdk`. Compiled with `tsc` to `dist/`, run by Node (v22+). Build is one-time at install; runtime is just `node dist/index.js`.
 
 Per-context, per-session: each Claude Code chat in each Context has its own MCP instance, fully isolated. State the MCP holds in memory survives LLM context compaction — only the LLM context is compressed; the MCP process keeps running.
 
@@ -176,8 +177,8 @@ python /path/to/Igor.source.git/cockpit/deploy/install.py <context_folder_path>
      },
      "mcpServers": {
        "igor": {
-         "command": "bun",
-         "args": ["run", "/…/cockpit/mcp/src/index.ts"]
+         "command": "node",
+         "args": ["/…/cockpit/mcp/dist/index.js"]
        }
      }
    }
