@@ -55,6 +55,8 @@ Minimal, Jira-style ticket. Five required sections (`WHAT`, `WHY`, `PROGRESS`, `
 
    Order: chronological — top is the earliest entry, bottom is the latest. New entries are appended at the bottom.
 
+   **Size discipline.** The section must fit on one screen — approximately 30–40 lines, 500–800 words as a soft cap. As new milestones accumulate and the section approaches that cap, earlier paragraphs are compressed: multiple finer-grained entries collapse into one summary, fully-superseded entries are dropped or replaced by a pointer to the protocol chapter where the detail lives. A reader landing here must absorb the OBJ's state quickly; if they need more, the protocol and the chaptered transcript are there.
+
 6. **`## Items`** — flat list of all sub-entities (I, S, T) attached to this Objective, both active and resolved, in one stream. State is in the prefix tag. `*пусто*` if none.
 
    Format per line:
@@ -102,7 +104,7 @@ These are an instance of the broader anti-fluff principle: before writing a frag
 `**State:**`, `**Blocked by:**`, `**Цель:**`, `**Выходы:**`, `**Обоснование закрытия:**`, `Merged into`.
 
 **Section headers:**
-`## WHAT`, `## WHY`, `## Items`, `## User Notes`.
+`## WHAT`, `## WHY`, `## PROGRESS`, `## Items`, `## User Notes`.
 
 **Empty marker:**
 `*пусто*`.

@@ -29,12 +29,12 @@ The hook produces three kinds of on-disk artifacts. Their formats are this compo
 
 ### Per-turn file
 
-Path: `<SessionFolder>/transcript/NNN_msg.md`. Initial name uses `NNN_msg.md` (where `NNN` is the turn index, zero-padded 3 digits). After async indexing (by a separate skill, not this hook) the file may be renamed to `NNN_<slug>.md`.
+Path: `<SessionFolder>/transcript/NNN_msg.md`. Initial name uses `NNN_msg.md` (where `NNN` is the turn index, zero-padded 3 digits). A downstream component may later rename the file to `NNN_<slug>.md` (per-turn slug) or repoint multiple entries at a shared `NNN_<ChapterSlug>.md` (chapter-file). Per-turn slugging is currently performed by the `protocolist` subagent's Stage 1 in the same pass as chapter sealing — a separate slugging component is not shipped. Per-field ownership of `index.json` allows either model (one combined subagent or two separate ones); see *Field-level ownership* below.
 
 File contents:
 
 ```markdown
-## NNN <Title>                     ← H2; <Title> is added by the indexer
+## NNN <Title>                     ← H2; <Title> is added by the downstream slugging writer (see Per-turn file note above)
 
 **User:**
 
@@ -93,10 +93,32 @@ Per-turn fields:
 - `complete` — `true` once the assistant has produced its final response for the turn.
 - `midflight_count` — number of mid-flight user messages within the turn (each rendered as a `**User (mid-flight):**` block).
 - `assistant_count` — number of assistant message blocks within the turn.
-- `slug` — populated by an async indexer (separate from this hook); the hook leaves it alone once set.
-- `file` — points at the on-disk file for the turn. Multiple turn entries may share a `file` value when a downstream component groups consecutive turns into chapter-files (see `instructions/specs/session_protocol_spec.md`).
+- `slug` — populated by a downstream slugging writer (currently `protocolist` Stage 1; see *Field-level ownership* below). The hook leaves it alone once set.
+- `file` — points at the on-disk file for the turn. Multiple turn entries may share a `file` value when a downstream component groups consecutive turns into chapter-files (see `instructions/specs/protocolist_spec.md`).
 
 `next_index` is `len(turns)` — recomputed and written by the hook on each fire as turns are reconciled from the JSONL.
+
+#### Field-level ownership
+
+`index.json` has multiple writers. Without explicit per-field ownership they would silently overwrite each other. The rule:
+
+| Field | Writer | Mutability |
+|---|---|---|
+| `next_index` | Stop hook only | Recomputed every fire; never written by anyone else. |
+| `turns[i].index` | Stop hook only | Set on first append; immutable. |
+| `turns[i].prompt_id` | Stop hook only | Set on first append; immutable. Used for resumed-chat detection. |
+| `turns[i].started_at` / `ended_at` | Stop hook only | Hook recomputes from the JSONL each fire. |
+| `turns[i].complete` | Stop hook only | Hook flips `false → true` once the assistant finishes the turn. |
+| `turns[i].midflight_count` / `assistant_count` | Stop hook only | Hook recomputes from the JSONL each fire. |
+| `turns[i].slug` | Downstream slugging writer (currently the `protocolist` subagent's Stage 1, in the same pass as chapter sealing — a separate slugging component is not shipped) | Hook leaves it alone once set to a non-null value. Hook never resets a non-null `slug` to `null`. |
+| `turns[i].file` | Initially Stop hook (`NNN_msg.md`); subsequently the `protocolist` subagent during chapter seal | Once `file` no longer points at the canonical `NNN_msg.md`, the hook treats the entry as **owned downstream** and will not resurrect the original file. See *Consistency invariants*. |
+
+Writer discipline:
+
+- Every writer must read-modify-write `index.json` atomically (temp + `os.replace`).
+- The Stop hook recomputes its owned fields from the JSONL on every fire; any drift in those fields is healed by the next fire, so downstream writers must not depend on those fields holding values across runs.
+- Downstream writers must touch only `slug` and/or `file`. Writing any other field is a contract violation and may be silently overwritten by the next hook fire.
+- A new field added to `index.json` requires updating this table — without an explicit owner the field is undefined and may be dropped by any writer.
 
 ### SessionStateFile
 
@@ -121,13 +143,16 @@ Derivable elsewhere (so not stored here):
 - `session_id` is the filename itself.
 - `started_at` lives in `index.json` as `turns[0].started_at`.
 
-The MCP `rename_current_session` tool updates `session_folder` after `mv`-ing the folder.
+The MCP `rename_current_session` tool updates `session_folder` after `mv`-ing the folder. Because resumed chats produce **multiple SessionStateFile aliases** with the same `first_prompt_id` and `session_folder`, the tool must locate **every** alias (scan `<ContextFolder>/.claude/sessions/*.json` for files whose `first_prompt_id` matches the current session's, or equivalently whose `session_folder` matches the pre-rename path) and update all of them in one atomic pass. Leaving stale aliases would mean later resumes silently land on a non-existent path.
+
+Alias bootstrap repair: on every fire, after locating its target SessionFolder, the hook compares its own SessionStateFile `session_folder` field against reality (does the path exist?). If the path is missing while the SessionFolder it should point at can be reached by `first_prompt_id` scan, the hook self-heals — rewrites the alias to the live path. This covers cases where a rename happened while this `session_id` was offline.
 
 ## Lifecycle
 
-1. **First fire (bootstrap).** No SessionStateFile exists yet. The hook reads the JSONL, takes `turns[0].prompt_id` as `first_prompt_id`, then:
-   - scans `journal/YYYY/MM/DD/*/transcript/index.json` for a folder whose `turns[0].prompt_id` matches — if found, **reuse** (resumed-chat detection);
-   - otherwise creates `journal/YYYY/MM/DD/HHMM_session/` using the timestamp of the first user prompt;
+1. **First fire (bootstrap).** No SessionStateFile exists yet. The hook reads the JSONL, takes `turns[0].prompt_id` as `first_prompt_id` and `turns[0].started_at` as `first_prompt_at`, then:
+   - scans `journal/YYYY/MM/DD/*/transcript/index.json` using **`YYYY/MM/DD` derived from `first_prompt_at`** (not from the current wall clock), so a chat resumed on a later day still locates its original folder created earlier;
+   - if a folder whose `turns[0].prompt_id` matches `first_prompt_id` is found → **reuse** (resumed-chat detection); the hook writes a *new* SessionStateFile under the new `session_id` pointing at the existing folder — multiple `.claude/sessions/<session_id>.json` aliases pointing at the same `session_folder` are allowed and expected;
+   - otherwise creates `journal/YYYY/MM/DD/HHMM_session/` using the date and time of `first_prompt_at`;
    - writes the minimal SessionStateFile.
 2. **Subsequent fires.** Reads the SessionStateFile, walks the JSONL, computes the desired per-turn files, and reconciles.
 
@@ -135,7 +160,7 @@ The MCP `rename_current_session` tool updates `session_folder` after `mv`-ing th
 
 For each turn, the hook decides whether to (re)write the `NNN_msg.md` file. Action is triggered if any of:
 
-- the file is missing **and** the index entry has no slug (i.e., the indexer hasn't claimed it — see *Concurrency model* below);
+- the file is missing **and** the index entry has no slug (i.e., no downstream slugging writer has claimed it — see *Consistency invariants* below);
 - the entry's `complete` flag is `false`;
 - `midflight_count` grew (a mid-flight message arrived);
 - `assistant_count` grew (additional assistant turn was appended);
@@ -149,12 +174,14 @@ Messages the user sends *while the assistant is working* arrive in the JSONL as 
 
 ## Consistency invariants
 
-The hook does not take any inter-process lock. Claude Code serializes turn processing within a session; the hook fires only at turn boundaries; skills running inside turns and `claude -p` subprocesses do not trigger hook re-entry. Concurrent writers to the same `index.json` therefore do not occur in current design.
+The hook does not take any inter-process lock. Claude Code serializes turn processing within a session; the hook fires only at turn boundaries; tool calls running inside turns and `claude -p` subprocesses (subchat-spawned subagents) do not trigger hook re-entry. Concurrent writers to the same `index.json` therefore do not occur in current design.
 
 Two content-level invariants the hook honors:
 
 - **Atomic writes.** `index.json` and any per-turn file are written via temp + `os.replace`. No partial writes are ever observable.
-- **Multi-entry → shared file pattern.** Downstream components (e.g., the `session-protocol` skill) may merge consecutive turn entries into a chapter-file by pointing multiple `index.json` entries at the same `file` value. The hook detects this and leaves the shared file untouched. A per-turn `NNN_msg.md` whose `index.json` entry has `slug` set, or whose `file` field points at a chapter-file rather than `NNN_msg.md`, is **not resurrected** — even if the file is missing on disk.
+- **Multi-entry → shared file pattern.** Downstream components (e.g., the `protocolist` subagent) may merge consecutive turn entries into a chapter-file by pointing multiple `index.json` entries at the same `file` value. The hook detects this and leaves the shared file untouched. A per-turn `NNN_msg.md` whose `index.json` entry has `slug` set, or whose `file` field points at a chapter-file rather than `NNN_msg.md`, is **not resurrected** — even if the file is missing on disk.
+
+  Required seal sequence for downstream chapter writers (full procedure and crash-recovery in [`schemas/session_protocol.md`](schemas/session_protocol.md) §Multi-file commit order): **(1)** write chapter-file (temp + atomic rename), **(2)** atomically rewrite `index.json` so every covered turn entry's `file` points at the chapter-file, **(3)** *optionally* delete the original `NNN_msg.md` files in the covered range. Step (3) is optional — once step (2) commits, the hook treats those entries as downstream-owned regardless of whether originals still exist on disk. Reversing the order (deleting originals before the index commit) would leave a window in which the hook resurrects them on the next fire.
 
 ## Discipline
 

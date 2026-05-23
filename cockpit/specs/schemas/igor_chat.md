@@ -40,18 +40,7 @@ The agent always emits the Latin canonical form; the user may type either.
 
 ## Event markers
 
-Verbs with a trailing `!` are one-time events emitted in chat at the moment the action takes place:
-
-| Marker | When |
-|---|---|
-| `triaged!` | Problem → one or more O / I / T (transformation) |
-| `renamed!` | scope of an `open` Objective expanded materially — new slug |
-| `moved!` | sub-entity re-parented between Objectives |
-| `merged!` | two Objectives merged into one |
-| `split!` | one Objective split into two |
-| `promoted!` | artifact moved from the OBJ folder to the git repo |
-
-Event markers are not repeated in subsequent summaries.
+The set of one-time event markers (`triaged!`, `renamed!`, `moved!`, `merged!`, `split!`, `promoted!`) and their semantics are defined in [`domain-model.md`](../domain-model.md) §4. This file specifies only how they appear in the chat-output format (see *Change-log lines* below). Event markers are not repeated in subsequent summaries.
 
 ## Change-log lines
 

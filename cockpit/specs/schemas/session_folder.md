@@ -11,8 +11,15 @@ journal/YYYY/MM/DD/
     transcript/                    ← produced by the Stop hook
       index.json                   ← see cockpit/specs/stop_hook.md
       NNN_msg.md                   ← per-turn files; format in stop_hook.md
-      NNN_<slug>.md                ← indexed turn files (downstream skill)
-      NNN_<ChapterSlug>.md         ← chapter-files (downstream skill)
+      NNN_<slug>.md                ← indexed turn files (downstream subagent)
+      NNN_<ChapterSlug>.md         ← chapter-files (downstream subagent)
+    protocol.md                    ← curated narrative (produced by protocolist subagent)
+    subchats/                      ← per-subagent runtime state
+      <subagent>/                  ← e.g., protocolist
+        config.yaml                ← see cockpit/specs/subchat.md
+        system_prompt.md
+        session.json               ← after first run
+        log/                       ← run history
     <any other files>              ← see "Other files" below
 ```
 
@@ -33,11 +40,11 @@ Slugs (for SessionFolder and for per-turn files alike) follow the same rules as 
 
 ## Transcript folder
 
-`<SessionFolder>/transcript/` — raw log of the session, one file per turn. Produced and maintained by the Stop hook; per-turn file format and `index.json` schema are specified in [`cockpit/specs/stop_hook.md`](../stop_hook.md). The `session-protocol` skill may additionally produce chapter-files in this folder; their format is specified in [`instructions/specs/session_protocol_spec.md`](../../../instructions/specs/session_protocol_spec.md).
+`<SessionFolder>/transcript/` — raw log of the session, one file per turn. Produced and maintained by the Stop hook; per-turn file format and `index.json` schema are specified in [`cockpit/specs/stop_hook.md`](../stop_hook.md). The `protocolist` subagent may additionally produce chapter-files in this folder; their content schema (plus the schema for `protocol.md`) lives in [`schemas/session_protocol.md`](session_protocol.md). Subagent behaviour contract is in [`instructions/specs/protocolist_spec.md`](../../../instructions/specs/protocolist_spec.md).
 
 ## state.md — session scope and Problems
 
-`<SessionFolder>/state.md` — the session's working state, continuously updated by the agent as the chat evolves. **Agent-owned** — produced and updated by the runtime agent (per `instructions/igor.md`), not by any component.
+`<SessionFolder>/state.md` — the session's working state, continuously updated as the chat evolves. The file has **multiple writers**; ownership is defined per-section, see [Section ownership](#section-ownership) below.
 
 State.md exists for two reasons:
 
@@ -62,6 +69,9 @@ State.md exists for two reasons:
   - P1.I01 ScopeBoundary (open) — is this one thing or two?
   - P1.S02 SplitProposal (canceled) — user declined: prefers different split
 - P3 SaveTimingQuestion (draft)
+
+## Subchats
+- protocolist (active)
 ```
 
 ### Sections
@@ -69,6 +79,29 @@ State.md exists for two reasons:
 - **`## Input`** — *(optional)* — references to external inputs the session consumes. Omit if empty.
 - **`## Scope`** — list of Objectives in session scope, with engagement mode in brackets. Engagement modes: `draft` / `what|why` / `how` / `work`. Modes are described in `domain-model.md` §2.3.
 - **`## Problems`** — list of Problems (chat-only, session-scoped) with their sub-entities nested as indented bullets. Each line: `<code> <Slug> (<state>) — <short note>`.
+- **`## Subchats`** — *(optional)* — list of subagents materialized in this session's `subchats/` folder. Each line: `<subagent-name> (<state>)`. States: `active` / `terminated`. Written by MCP `spawn_subchat`; not modified by subchat runs. One subchat per subagent name per session. See `cockpit/specs/subchat.md` for subagent semantics. Omit the section if no subchats are active.
+
+### Section ownership
+
+`state.md` is updated by two distinct writers — the runtime agent (Igor) and the MCP server. To prevent silent overwrites, ownership is fixed per section:
+
+| Section | Writer | Notes |
+|---|---|---|
+| `## Input` | Igor (agent) | Free-form prose. |
+| `## Scope` | Igor (agent) | Engagement mode and per-OBJ scope. |
+| `## Problems` (parent bullets, prose) | Igor (agent) | Problem-level bullets (slug, state, short note). |
+| `## Problems` (sub-entity sub-bullets) | MCP via `sub_entity_create` / `sub_entity_set_state` for Problem-parent calls | Sub-bullets with `Pn.In` / `Pn.Sn` / `Pn.Tn` codes and their `(state)` markers are mutated by MCP, not Igor. The text after `—` is Igor-owned. |
+| `## Subchats` | MCP via `spawn_subchat` | Igor never edits this section. |
+
+**Merge-preserving discipline.** Every writer reads the current `state.md`, modifies only its own section(s), and writes back atomically (temp + `os.replace`). Sections owned by another writer are preserved verbatim — including their position, headers, and content. Adding a new section requires explicit ownership assignment in this table; until then, no writer may emit it.
+
+Sub-entity bullet format inside `## Problems` (for an MCP-owned line):
+
+```
+  - P1.I02 ScopeBoundary (open) — is this one thing or two?
+```
+
+The leading code (`P1.I02`) and the parenthesised state (`(open)`) are MCP-owned; the descriptive tail after `—` is Igor-owned. Both writers preserve the other half on update.
 
 ### Lifecycle
 

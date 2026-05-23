@@ -87,7 +87,7 @@ When `igor.md` and a spec disagree — the spec wins, `igor.md` is updated to ma
 ## Deploy
 
 - **Source:** [`instructions/igor.md`](../igor.md) in `Igor.source.git`.
-- **Target:** `<Context>/.claude/output-styles/igor.md` (copied manually by Andrei).
+- **Target:** `<Context>/.claude/output-styles/igor.md` — deployed by `install.py` per [`cockpit/specs/deploy.md`](../../cockpit/specs/deploy.md) step 4 (no manual copy).
 - **Deploy machinery** prepends `cockpit_config.localization` from `<Context>/context.json` as an `## Identity` block at the top of the file. The agent sees that block before the body of `igor.md`.
 
 ## Adequacy criteria (for review)

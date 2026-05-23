@@ -27,7 +27,7 @@ For reference — the journal sits inside the broader context layout:
   context.json
   .claude/
     settings.json
-    sessions/<session_id>.json     ← SessionStateFile, see schemas/session_folder.md
+    sessions/<session_id>.json     ← SessionStateFile; schema and writer in cockpit/specs/stop_hook.md §SessionStateFile
   objectives/                      ← see schemas/obj_folder.md
   journal/                         ← this schema
   shared/                          ← cross-OBJ resources

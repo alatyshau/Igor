@@ -17,7 +17,7 @@ The Igor.source.git repo's own absolute path is discovered relative to where `in
 ## What `install.py` does
 
 1. **Validate / scaffold `context.json`.** If absent, write a minimal one (`name`, `cockpit_config`). If present, leave user-owned keys untouched.
-2. **Create `.claude/` tree.** `<context_folder>/.claude/sessions/` and `<context_folder>/.claude/output-styles/`.
+2. **Create `.claude/` tree.** `<context_folder>/.claude/sessions/`, `<context_folder>/.claude/output-styles/`, and `<context_folder>/.claude/cockpit/subagents/`.
 3. **Render `settings.json` from `settings.template.json`.** Substitute placeholders with absolute paths discovered relative to `install.py`'s own location (sibling `mcp/`, `hooks/`):
 
    ```json
@@ -31,7 +31,7 @@ The Igor.source.git repo's own absolute path is discovered relative to where `in
      "mcpServers": {
        "igor": {
          "command": "node",
-         "args": ["/…/cockpit/mcp/dist/index.js"]
+         "args": ["/…/cockpit/mcp/dist/src/index.js"]
        }
      }
    }
@@ -39,8 +39,9 @@ The Igor.source.git repo's own absolute path is discovered relative to where `in
 
    If a `settings.json` already exists, merge `hooks` and `mcpServers` entries without overwriting unrelated keys.
 4. **Deploy persona.** Read `instructions/igor.md` from source; prepend a localization paragraph rendered from `context.json.cockpit_config.localization` (single string with language, user name, timezone); write to `<context_folder>/.claude/output-styles/igor.md`. Source `igor.md` itself ships without personal data — public repo.
-5. **Create empty `objectives/` and `journal/`** if absent.
-6. **Report** what was created, merged, or skipped.
+5. **Deploy subagent profiles.** Copy every `instructions/subagents/*.md` from source to `<context_folder>/.claude/cockpit/subagents/<name>.md`. These are the profiles MCP `spawn_subchat` reads at runtime to materialize subchats (see `mcp.md`, `subchat.md`). Overwrite existing files — profiles are source-of-truth in the repo, not user-editable in the Context. **Path discipline:** profiles must *not* live at `<context_folder>/.claude/agents/` — that path is reserved by Claude Code for native Custom Agents, which would be auto-discovered by the Task tool and silently bypass the subchat plumbing. The cockpit-namespaced subpath isolates them.
+6. **Create empty `objectives/` and `journal/`** if absent.
+7. **Report** what was created, merged, or skipped.
 
 ## Scoping
 

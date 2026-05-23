@@ -63,15 +63,25 @@ Each runtime component has a single focused responsibility. Detailed specs live 
 
 ### 4.3 Deploy
 
-**Responsibility.** Install MCP + hook + agent persona into a Context folder.
+**Responsibility.** Install MCP + hook + agent persona + subchat into a Context folder.
 
-**Why it exists.** A Claude Code Context is just a folder until configured. Deploy turns it into a cockpit-managed Context: writes the right `settings.json`, places the hook script, registers the MCP server, deploys the persona file.
+**Why it exists.** A Claude Code Context is just a folder until configured. Deploy turns it into a cockpit-managed Context: writes the right `settings.json`, places the hook script, registers the MCP server, deploys the persona file, makes the subchat CLI available.
 
 **How.** A Python script (`install.py`) called once per Context. Idempotent — re-runs update settings without overwriting user keys.
 
 **Spec:** [`deploy.md`](deploy.md).
 
-The persona file `instructions/igor.md` is a *product*, not a runtime component — see [`../../instructions/specs/igor_spec.md`](../../instructions/specs/igor_spec.md).
+### 4.4 Subchat
+
+**Responsibility.** Run named subagents in headless `claude -p` mode under the current SessionFolder, with isolation and progress streaming.
+
+**Why it exists.** When the main agent (Igor) delegates work to another agent — protocolist now, advisor/coder/reviewer in the future — every such use case needs the same plumbing: claude command construction, `session_id` management, per-subagent config and state on disk, isolation from Igor's `.claude/`, live progress to the parent. Subchat centralizes this so the main agent's prompt and downstream subagent profiles stay focused on substance.
+
+**How.** A Python CLI (`subchat.py`) invoked by Igor via Monitor. Reads the per-subagent config from `<SessionFolder>/subchats/<subagent>/config.yaml`, spawns `claude -p` with appropriate flags and cwd, streams progress events to stdout, captures full output to `log/NN/`. Subagent profiles are authored at `instructions/subagents/<name>.md` in the source repo; deploy copies them to `<ContextFolder>/.claude/cockpit/subagents/<name>.md` per-Context (not `.claude/agents/` — that path triggers Claude Code's Custom Agent auto-discovery and would let Task-tool calls bypass subchat); MCP `spawn_subchat` reads from there and materializes into the SessionFolder.
+
+**Spec:** [`subchat.md`](subchat.md).
+
+The persona file `instructions/igor.md` is a *product*, not a runtime component — see [`../../instructions/specs/igor_spec.md`](../../instructions/specs/igor_spec.md). Subagent profiles (e.g., `instructions/subagents/protocolist.md`) are also products with their own specs in `instructions/specs/`.
 
 ## 5. Interactions
 
@@ -85,13 +95,13 @@ How the components cooperate at runtime in a typical Context:
 
 4. **Entity operations.** Agent decides to create an Objective, transition a state, allocate a sub-entity code. It calls an MCP tool. The tool atomically writes to `objectives/`. The agent's prompt does not carry the procedural recipe.
 
-5. **Skill-driven downstream work.** Agent invokes a skill (e.g., `!протокол`). The skill consumes Stop hook outputs (`transcript/`) and produces its own artifacts (chapter-files, `protocol.md`). Some skills may also update agent-managed sections (e.g., `## PROGRESS` in OBJ index files) as a secondary path — the agent is the primary writer of those sections; the skill backs the agent up when needed. Each skill operates within boundaries declared in its own spec; none effects OBJ state transitions directly.
+5. **Subagent delegation.** On user commands like `!протокол`, the agent delegates work to a named subagent. First time: MCP `spawn_subchat(subagent=...)` materializes `<SessionFolder>/subchats/<name>/` with `config.yaml` + `system_prompt.md`. Then (and on subsequent invocations) the agent runs `subchat --subagent <name> --msg "<verbatim user command>"` via the Monitor mechanism. Subchat spawns `claude -p` in the SessionFolder (isolated from Igor's `.claude/`), streams progress events to stdout. The agent watches the stream and surfaces it to the user. The subagent's output (chapter-files, `protocol.md`, etc.) appears in the SessionFolder; OBJ-level state (`## PROGRESS` sections) is updated by the main agent later, on user request — not by the subagent.
 
-6. **Session end.** User closes the chat. SessionFolder remains in the journal. The next session opens with `state.md` scope and PROGRESS sections of in-scope OBJ already loaded.
+6. **Session end.** User closes the chat. SessionFolder remains in the journal, including all subchat history under `subchats/`.
 
-The components are **loosely coupled**: MCP knows entities, the hook knows transcripts, deploy knows installation. They share the on-disk layout described in `schemas/`; they do not call each other directly.
+The components are **loosely coupled**: MCP knows entities and spawns subchats; the hook knows transcripts; deploy knows installation; subchat runs subagents. They share the on-disk layout described in `schemas/`; they do not call each other directly except via MCP's `spawn_subchat` triggering subchat folder creation.
 
-There is no inter-process locking: Claude Code serializes turn processing within a session (the hook fires at turn boundaries; skills run inside turns; `claude -p` subprocesses do not trigger hooks). The only coordination needed is content-level consistency between writers — handled by atomic writes (temp + rename) and the multi-entry → shared file pattern in `index.json` (see `stop_hook.md`).
+There is no inter-process locking: Claude Code serializes turn processing within a session (the hook fires at turn boundaries; subagent subprocesses do not trigger hooks). The only coordination needed is content-level consistency between writers — handled by atomic writes (temp + rename) and the multi-entry → shared file pattern in `index.json` (see `stop_hook.md`).
 
 ## 6. Component layout
 
@@ -105,11 +115,13 @@ Igor.source.git/
       mcp.md
       stop_hook.md
       deploy.md
+      subchat.md
       domain-model.md
       schemas/                     ← on-disk folder layouts
     mcp/                           ← MCP implementation (TypeScript, Node v22+)
     hooks/                         ← Claude Code hooks (Python)
     deploy/                        ← install.py + settings.template.json
+    subchat/                       ← subchat CLI (Python)
   instructions/                    ← agent persona + skills (deployed, not part of runtime)
     igor.md                        ← persona (output style)
     specs/                         ← product specs for instructions/ artifacts
