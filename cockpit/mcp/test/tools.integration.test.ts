@@ -203,8 +203,8 @@ test("objective_set_state: moves folder + updates State line; cascade on cancele
       { ctx, index },
     )) as { code: string };
 
-    // add a sub-entity to verify cascade
-    await tool("sub_entity_create").handler(
+    // add a ticket to verify cascade
+    await tool("ticket_create").handler(
       { parent: created.code, type: "I", slug: "ChildIssue", description: "", state: "open" },
       { ctx, index },
     );
@@ -212,10 +212,10 @@ test("objective_set_state: moves folder + updates State line; cascade on cancele
     const result = (await tool("objective_set_state").handler(
       { code: created.code, new_state: "canceled" },
       { ctx, index },
-    )) as { folder_path: string; cascaded_sub_entities: string[] };
+    )) as { folder_path: string; cascaded_tickets: string[] };
 
     assert.match(result.folder_path, /cancelled\/OBJ000_ToClose$/);
-    assert.deepEqual(result.cascaded_sub_entities, ["I01"]);
+    assert.deepEqual(result.cascaded_tickets, ["I01"]);
 
     const content = await fs.readFile(path.join(result.folder_path, "index.md"), "utf8");
     assert.match(content, /^\*\*State:\*\* canceled$/m);
@@ -260,7 +260,7 @@ test("objective_set_blocked_by: applies + detects cycle", async () => {
   }
 });
 
-test("sub_entity_create + sub_entity_set_state on OBJ parent", async () => {
+test("ticket_create + ticket_set_state on OBJ parent", async () => {
   const { ctx, cleanup } = await makeContext();
   try {
     const index = await buildObjIndex(ctx);
@@ -269,14 +269,14 @@ test("sub_entity_create + sub_entity_set_state on OBJ parent", async () => {
       { ctx, index },
     )) as { code: string };
 
-    const sub = (await tool("sub_entity_create").handler(
+    const sub = (await tool("ticket_create").handler(
       { parent: obj.code, type: "T", slug: "DoStuff", description: "Do the thing.", state: "open" },
       { ctx, index },
     )) as { code: string };
 
     assert.equal(sub.code, "T01");
 
-    await tool("sub_entity_set_state").handler(
+    await tool("ticket_set_state").handler(
       { parent: obj.code, code: "T01", new_state: "closed" },
       { ctx, index },
     );
@@ -291,7 +291,7 @@ test("sub_entity_create + sub_entity_set_state on OBJ parent", async () => {
   }
 });
 
-test("sub_entity_set_state: rejects invalid state for type", async () => {
+test("ticket_set_state: rejects invalid state for type", async () => {
   const { ctx, cleanup } = await makeContext();
   try {
     const index = await buildObjIndex(ctx);
@@ -300,14 +300,14 @@ test("sub_entity_set_state: rejects invalid state for type", async () => {
       { ctx, index },
     )) as { code: string };
 
-    await tool("sub_entity_create").handler(
+    await tool("ticket_create").handler(
       { parent: obj.code, type: "I", slug: "AnIssue", description: "", state: "open" },
       { ctx, index },
     );
 
     await assert.rejects(
       () =>
-        tool("sub_entity_set_state").handler(
+        tool("ticket_set_state").handler(
           { parent: obj.code, code: "I01", new_state: "confirmed" },
           { ctx, index },
         ),

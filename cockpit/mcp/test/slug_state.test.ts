@@ -38,7 +38,7 @@ test("ObjectiveState: subdir mapping", () => {
   assert.equal(objectiveSubdir("backlog"), "backlog");
 });
 
-test("Sub-entity states are type-scoped", () => {
+test("Ticket states are type-scoped", () => {
   // Issue
   assert.equal(isValidStateForType("I", "open"), true);
   assert.equal(isValidStateForType("I", "closed"), true);

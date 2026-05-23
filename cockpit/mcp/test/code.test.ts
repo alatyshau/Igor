@@ -2,13 +2,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   codeToInt,
-  formatSubEntityCode,
+  formatTicketCode,
   intToCode,
   isValidObjectiveCode,
-  isValidSubEntityCode,
+  isValidTicketCode,
   nextCode,
-  nextSubEntityIndex,
-  parseSubEntityCode,
+  nextTicketIndex,
+  parseTicketCode,
 } from "../src/code.js";
 
 // Per cockpit/specs/schemas/obj_folder.md §"ObjectiveCode":
@@ -122,27 +122,27 @@ test("ObjectiveCode: codeToInt rejects unreachable forms", () => {
   assert.throws(() => codeToInt("OBJ5AB"));
 });
 
-test("SubEntityCode: parse and format", () => {
-  assert.equal(isValidSubEntityCode("I01"), true);
-  assert.equal(isValidSubEntityCode("S99"), true);
-  assert.equal(isValidSubEntityCode("T42"), true);
-  assert.equal(isValidSubEntityCode("X01"), false);
-  assert.equal(isValidSubEntityCode("I1"), false);
+test("TicketCode: parse and format", () => {
+  assert.equal(isValidTicketCode("I01"), true);
+  assert.equal(isValidTicketCode("S99"), true);
+  assert.equal(isValidTicketCode("T42"), true);
+  assert.equal(isValidTicketCode("X01"), false);
+  assert.equal(isValidTicketCode("I1"), false);
 
-  const parsed = parseSubEntityCode("S07");
+  const parsed = parseTicketCode("S07");
   assert.equal(parsed.type, "S");
   assert.equal(parsed.index, 7);
 
-  assert.equal(formatSubEntityCode("I", 1), "I01");
-  assert.equal(formatSubEntityCode("T", 99), "T99");
-  assert.throws(() => formatSubEntityCode("I", 0));
-  assert.throws(() => formatSubEntityCode("I", 100));
+  assert.equal(formatTicketCode("I", 1), "I01");
+  assert.equal(formatTicketCode("T", 99), "T99");
+  assert.throws(() => formatTicketCode("I", 0));
+  assert.throws(() => formatTicketCode("I", 100));
 });
 
-test("SubEntityCode: nextSubEntityIndex is type-scoped", () => {
+test("TicketCode: nextTicketIndex is type-scoped", () => {
   const codes = ["I01", "I02", "S01", "T05"];
-  assert.equal(nextSubEntityIndex(codes, "I"), 3);
-  assert.equal(nextSubEntityIndex(codes, "S"), 2);
-  assert.equal(nextSubEntityIndex(codes, "T"), 6);
-  assert.equal(nextSubEntityIndex([], "I"), 1);
+  assert.equal(nextTicketIndex(codes, "I"), 3);
+  assert.equal(nextTicketIndex(codes, "S"), 2);
+  assert.equal(nextTicketIndex(codes, "T"), 6);
+  assert.equal(nextTicketIndex([], "I"), 1);
 });

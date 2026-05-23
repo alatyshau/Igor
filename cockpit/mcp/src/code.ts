@@ -93,35 +93,35 @@ export function nextCode(existing: Iterable<string>): string {
   return intToCode(max + 1);
 }
 
-// SubEntityCode within an OBJ: I01, S07, T12 (Letter + 2-digit decimal).
-// State.md sub-entities under a Problem use the form `P3.I01` externally;
+// TicketCode within an OBJ: I01, S07, T12 (Letter + 2-digit decimal).
+// State.md tickets under a Problem use the form `P3.I01` externally;
 // inside the parent file they're just `I01`.
 const SUB_PATTERN = /^([IST])(\d{2})$/;
 
-export type SubEntityType = "I" | "S" | "T";
+export type TicketType = "I" | "S" | "T";
 
-export function isValidSubEntityCode(code: string): code is string {
+export function isValidTicketCode(code: string): code is string {
   return SUB_PATTERN.test(code);
 }
 
-export function parseSubEntityCode(code: string): { type: SubEntityType; index: number } {
+export function parseTicketCode(code: string): { type: TicketType; index: number } {
   const m = SUB_PATTERN.exec(code);
-  if (!m) throw new Error(`invalid sub-entity code: ${code}`);
-  return { type: m[1] as SubEntityType, index: parseInt(m[2]!, 10) };
+  if (!m) throw new Error(`invalid ticket code: ${code}`);
+  return { type: m[1] as TicketType, index: parseInt(m[2]!, 10) };
 }
 
-export function formatSubEntityCode(type: SubEntityType, index: number): string {
+export function formatTicketCode(type: TicketType, index: number): string {
   if (!Number.isInteger(index) || index < 1 || index > 99) {
-    throw new Error(`sub-entity index out of range: ${index}`);
+    throw new Error(`ticket index out of range: ${index}`);
   }
   return `${type}${index.toString().padStart(2, "0")}`;
 }
 
-export function nextSubEntityIndex(existing: Iterable<string>, type: SubEntityType): number {
+export function nextTicketIndex(existing: Iterable<string>, type: TicketType): number {
   let max = 0;
   for (const code of existing) {
     if (!SUB_PATTERN.test(code)) continue;
-    const parsed = parseSubEntityCode(code);
+    const parsed = parseTicketCode(code);
     if (parsed.type !== type) continue;
     if (parsed.index > max) max = parsed.index;
   }

@@ -8,10 +8,10 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import {
   isValidObjectiveCode,
-  parseSubEntityCode,
-  formatSubEntityCode,
-  nextSubEntityIndex,
-  type SubEntityType,
+  parseTicketCode,
+  formatTicketCode,
+  nextTicketIndex,
+  type TicketType,
 } from "./code.js";
 import { assertValidSlug } from "./slug.js";
 import {
@@ -46,11 +46,11 @@ import {
   type ContextPaths,
 } from "./context.js";
 import {
-  appendProblemSubItem,
+  appendProblemTicket,
   isValidProblemCode,
-  nextProblemSubCode,
+  nextProblemTicketCode,
   readStateMd,
-  setProblemSubItemState,
+  setProblemTicketState,
   writeStateMd,
 } from "./state_md.js";
 
@@ -159,7 +159,7 @@ const objectiveSetState = makeTool({
   name: "objective_set_state",
   description:
     "Move an Objective between states. Relocates the folder to the matching subdir " +
-    "(active / closed / cancelled / backlog). On `canceled`, cascades open sub-entities to `canceled`.",
+    "(active / closed / cancelled / backlog). On `canceled`, cascades open tickets to `canceled`.",
   shape: {
     code: z.string(),
     new_state: z.enum(["draft", "open", "closed", "canceled", "backlog"]),
@@ -197,7 +197,7 @@ const objectiveSetState = makeTool({
       code,
       new_state,
       folder_path: targetFolder,
-      cascaded_sub_entities: cascaded,
+      cascaded_tickets: cascaded,
     };
   },
 });
@@ -237,10 +237,10 @@ const objectiveSetBlockedBy = makeTool({
   },
 });
 
-const subEntityCreate = makeTool({
-  name: "sub_entity_create",
+const ticketCreate = makeTool({
+  name: "ticket_create",
   description:
-    "Create a sub-entity (Issue I / Suggestion S / Task T) under an Objective or a Problem. " +
+    "Create a ticket (Issue I / Suggestion S / Task T) under an Objective or a Problem. " +
     "For Objective parents (`OBJxxx`), appends to the OBJ's `## Items` in its `index.md`. " +
     "For Problem parents (`P1..P9`), appends a nested bullet under that Problem in the session's `state.md`.",
   shape: {
@@ -251,7 +251,7 @@ const subEntityCreate = makeTool({
     state: z.string().default("open"),
   },
   handler: async ({ parent, type, slug, description, state }, deps) => {
-    const t = type as SubEntityType;
+    const t = type as TicketType;
     assertValidSlug(slug);
     if (!isValidStateForType(t, state)) {
       throw new Error(`invalid initial state ${state} for type ${t}`);
@@ -263,8 +263,8 @@ const subEntityCreate = makeTool({
       const indexPath = path.join(meta.folderPath, "index.md");
       let content = await fs.readFile(indexPath, "utf8");
       const existingCodes = parseItems(content).map((it) => it.code);
-      const idx = nextSubEntityIndex(existingCodes, t);
-      const code = formatSubEntityCode(t, idx);
+      const idx = nextTicketIndex(existingCodes, t);
+      const code = formatTicketCode(t, idx);
       content = appendItem(content, { code, state, slug, text: description });
       await atomicWriteText(indexPath, content);
       return { parent, code, full_code: `${parent}.${code}` };
@@ -273,8 +273,8 @@ const subEntityCreate = makeTool({
     if (isValidProblemCode(parent)) {
       const sessionFile = await loadSessionStateFile(deps.ctx);
       const stateMd = await readStateMd(sessionFile.session_folder);
-      const code = nextProblemSubCode(stateMd, parent, t);
-      const next = appendProblemSubItem(stateMd, parent, {
+      const code = nextProblemTicketCode(stateMd, parent, t);
+      const next = appendProblemTicket(stateMd, parent, {
         type: t,
         code,
         slug,
@@ -289,19 +289,19 @@ const subEntityCreate = makeTool({
   },
 });
 
-const subEntitySetState = makeTool({
-  name: "sub_entity_set_state",
+const ticketSetState = makeTool({
+  name: "ticket_set_state",
   description:
-    "Transition a sub-entity's state. Validates the target state against the entity type's " +
+    "Transition a ticket's state. Validates the target state against the entity type's " +
     "state machine (Issue → closed|canceled, Suggestion → confirmed|canceled, Task → closed|canceled). " +
-    "Works for both Objective-parented and Problem-parented sub-entities.",
+    "Works for both Objective-parented and Problem-parented tickets.",
   shape: {
     parent: z.string(),
     code: z.string(),
     new_state: z.string(),
   },
   handler: async ({ parent, code, new_state }, deps) => {
-    const { type } = parseSubEntityCode(code);
+    const { type } = parseTicketCode(code);
     if (!isValidStateForType(type, new_state)) {
       throw new Error(`invalid state ${new_state} for type ${type}`);
     }
@@ -319,7 +319,7 @@ const subEntitySetState = makeTool({
     if (isValidProblemCode(parent)) {
       const sessionFile = await loadSessionStateFile(deps.ctx);
       const stateMd = await readStateMd(sessionFile.session_folder);
-      const next = setProblemSubItemState(stateMd, parent, code, new_state);
+      const next = setProblemTicketState(stateMd, parent, code, new_state);
       await writeStateMd(sessionFile.session_folder, next);
       return { parent, code, new_state };
     }
@@ -364,8 +364,8 @@ export const ALL_TOOLS = [
   objectiveCreate,
   objectiveSetState,
   objectiveSetBlockedBy,
-  subEntityCreate,
-  subEntitySetState,
+  ticketCreate,
+  ticketSetState,
   renameCurrentSession,
 ];
 

@@ -1,10 +1,10 @@
-// Read/write the session state.md for Problem-side sub-entity operations.
+// Read/write the session state.md for Problem-side ticket operations.
 // Format per cockpit/specs/schemas/session_folder.md.
 
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
 import { atomicWriteText } from "./fs_atomic.js";
-import { formatSubEntityCode, nextSubEntityIndex, type SubEntityType } from "./code.js";
+import { formatTicketCode, nextTicketIndex, type TicketType } from "./code.js";
 
 const PROBLEM_PATTERN = /^P[1-9]$/;
 // Lines under a Problem look like:
@@ -16,47 +16,47 @@ export function isValidProblemCode(code: string): boolean {
   return PROBLEM_PATTERN.test(code);
 }
 
-export interface ProblemSubItem {
+export interface ProblemTicket {
   problem: string; // "P3"
-  type: SubEntityType; // I | S | T
+  type: TicketType; // I | S | T
   code: string; // "I01"
   slug: string;
   state: string;
   text: string;
 }
 
-export function readStateMdSync(content: string): { problemSubItems: ProblemSubItem[] } {
-  const items: ProblemSubItem[] = [];
+export function readStateMdSync(content: string): { problemTickets: ProblemTicket[] } {
+  const items: ProblemTicket[] = [];
   for (const line of content.split(/\r?\n/)) {
     const m = PROBLEM_SUB_LINE_RE.exec(line);
     if (!m) continue;
     items.push({
       problem: m[1]!,
-      type: m[2] as SubEntityType,
+      type: m[2] as TicketType,
       code: `${m[2]}${m[3]}`,
       slug: m[4]!,
       state: m[5] ?? "open",
       text: m[6] ?? "",
     });
   }
-  return { problemSubItems: items };
+  return { problemTickets: items };
 }
 
-export function nextProblemSubCode(
+export function nextProblemTicketCode(
   content: string,
   problem: string,
-  type: SubEntityType,
+  type: TicketType,
 ): string {
-  const { problemSubItems } = readStateMdSync(content);
-  const codes = problemSubItems.filter((it) => it.problem === problem).map((it) => it.code);
-  const idx = nextSubEntityIndex(codes, type);
-  return formatSubEntityCode(type, idx);
+  const { problemTickets } = readStateMdSync(content);
+  const codes = problemTickets.filter((it) => it.problem === problem).map((it) => it.code);
+  const idx = nextTicketIndex(codes, type);
+  return formatTicketCode(type, idx);
 }
 
-export function appendProblemSubItem(
+export function appendProblemTicket(
   content: string,
   problem: string,
-  item: { type: SubEntityType; code: string; slug: string; state: string; text: string },
+  item: { type: TicketType; code: string; slug: string; state: string; text: string },
 ): string {
   if (!isValidProblemCode(problem)) {
     throw new Error(`invalid Problem code: ${problem}`);
@@ -78,7 +78,7 @@ export function appendProblemSubItem(
   return content.slice(0, insertAt) + line + content.slice(insertAt);
 }
 
-export function setProblemSubItemState(
+export function setProblemTicketState(
   content: string,
   problem: string,
   code: string,
@@ -90,7 +90,7 @@ export function setProblemSubItemState(
     "m",
   );
   if (!lineRe.test(content)) {
-    throw new Error(`sub-entity ${fullCode} not found in state.md`);
+    throw new Error(`ticket ${fullCode} not found in state.md`);
   }
   return content.replace(lineRe, `$1${newState}$2$3`);
 }

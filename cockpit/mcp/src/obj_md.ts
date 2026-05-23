@@ -87,7 +87,7 @@ export function setBlockedBy(content: string, blockedBy: readonly string[]): str
   return stripped.replace(STATE_ANCHOR_RE, (match) => `${match}\n${newLine.trimEnd()}`);
 }
 
-// Parse items section for sub-entity operations.
+// Parse items section for ticket operations.
 // Format per line: `- [<code> <state>] <slug> — <text>`
 
 const ITEM_LINE_RE = /^- \[([A-Z][0-9]{2}) ([a-z|]+)\]\s+(\S+)(?:\s+—\s+(.*))?$/;

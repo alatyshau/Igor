@@ -1,6 +1,6 @@
 // State machines per entity type. See cockpit/specs/domain-model.md.
 
-import type { SubEntityType } from "./code.js";
+import type { TicketType } from "./code.js";
 
 export const OBJECTIVE_STATES = ["draft", "open", "closed", "canceled", "backlog"] as const;
 export type ObjectiveState = (typeof OBJECTIVE_STATES)[number];
@@ -24,7 +24,7 @@ export function objectiveSubdir(state: ObjectiveState): string | null {
   }
 }
 
-// Sub-entity states per type. Per domain-model.md §1.4, Suggestion has no
+// Ticket states per type. Per domain-model.md §1.4, Suggestion has no
 // `declined` state — active reject and silent withdrawal both map to `canceled`.
 const ISSUE_STATES = ["open", "closed", "canceled"] as const;
 const SUGGESTION_STATES = ["open", "confirmed", "canceled"] as const;
@@ -33,9 +33,9 @@ const TASK_STATES = ["open", "closed", "canceled"] as const;
 export type IssueState = (typeof ISSUE_STATES)[number];
 export type SuggestionState = (typeof SUGGESTION_STATES)[number];
 export type TaskState = (typeof TASK_STATES)[number];
-export type SubEntityState = IssueState | SuggestionState | TaskState;
+export type TicketState = IssueState | SuggestionState | TaskState;
 
-export function validStatesFor(type: SubEntityType): readonly string[] {
+export function validStatesFor(type: TicketType): readonly string[] {
   switch (type) {
     case "I":
       return ISSUE_STATES;
@@ -46,11 +46,11 @@ export function validStatesFor(type: SubEntityType): readonly string[] {
   }
 }
 
-export function isValidStateForType(type: SubEntityType, state: string): boolean {
+export function isValidStateForType(type: TicketType, state: string): boolean {
   return (validStatesFor(type) as readonly string[]).includes(state);
 }
 
-export function isTerminalSubState(state: string): boolean {
+export function isTerminalTicketState(state: string): boolean {
   return ["closed", "canceled", "confirmed"].includes(state);
 }
 
