@@ -1,7 +1,7 @@
 // spawn_subchat — materialize a subchat folder from a subagent profile.
 //
 // Reads the markdown profile at
-// ``<ContextFolder>/.claude/cockpit/subagents/<name>.md`` (deployed by
+// ``<ContextFolder>/.claude/agents/<name>.md`` (deployed by
 // install.py — see cockpit/specs/deploy.md), splits its YAML frontmatter
 // from the body, merges the frontmatter onto the schema defaults from
 // cockpit/specs/subchat.md, and writes:
@@ -42,14 +42,11 @@ import { atomicWriteText, pathExists } from "./fs_atomic.js";
 // ---------------------------------------------------------------------------
 
 /** Subdir under the ContextFolder where install.py deploys subagent profiles.
- *  Explicitly NOT ``.claude/agents/`` — that path is reserved by Claude Code
- *  for native Custom Agents which would be auto-discovered by the Task tool
- *  and bypass the subchat plumbing entirely. See deploy.md §Deploy persona. */
-export const SUBAGENT_PROFILES_SUBDIR = path.join(
-  ".claude",
-  "cockpit",
-  "subagents",
-);
+ *  Canonical Claude Code path — auto-discovered on session start so native
+ *  visibility works (@agent-mention, /agents). Cockpit subagents are still
+ *  invoked through subchat (not Task) per ``instructions/igor.md`` rule;
+ *  native discovery is for visibility, not invocation. See deploy.md §6. */
+export const SUBAGENT_PROFILES_SUBDIR = path.join(".claude", "agents");
 
 /** Subdir under a SessionFolder where MCP materializes per-subagent folders. */
 export const SUBCHATS_SUBDIR = "subchats";

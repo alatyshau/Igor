@@ -196,7 +196,7 @@ class _Fixture:
         assert (c / ".claude" / "output-styles" / "igor.md").is_file(), \
             "deployed persona missing"
         assert (
-            c / ".claude" / "cockpit" / "subagents" / "protocolist.md"
+            c / ".claude" / "agents" / "protocolist.md"
         ).is_file(), "deployed protocolist profile missing"
 
     # -- transcript seeding ----------------------------------------------

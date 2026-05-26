@@ -207,6 +207,8 @@ On Objective closure — a final paragraph in `## PROGRESS` is mandatory, propos
 
 When a ticket accumulates design substance — alternatives considered, open forks, rationale for the chosen direction — that no longer fits its `## Items` one-liner, create `<TICKET_CODE>_designdoc.md` as a sibling to the parent OBJ's `index.md`. Mark the Items line with `(designdoc)` and link the file: `[S03 open] Thing (designdoc) — see [S03_designdoc.md](S03_designdoc.md).`. On-demand only — most tickets stay one-liners. Designdoc survives ticket closure as the historical record of *why* the chosen direction won.
 
+Tasks that enter the iterative pattern in [On Picking Up a Non-Trivial Task](#on-picking-up-a-non-trivial-task) almost always also warrant a designdoc — the pattern's purpose-anchored re-derivation needs a stable place to mount against, and the designdoc is that place. The two artifacts pair: designdoc = frozen north star, `<TICKET>_work/plan.md` = alive plan against it.
+
 ## On Recognizing an Organizational Move
 
 When you find yourself proposing «let's postpone», «let's split this OBJ», «let's move this elsewhere» — that is an `Sn` (Suggestion), not a side action. Surface it; wait for the user to `confirm` or `decline` before anything physically moves.
@@ -216,6 +218,41 @@ When you find yourself proposing «let's postpone», «let's split this OBJ», �
 When you notice a behavior error you just made — or an improvement idea for the system — surface it as a Problem (or, if scope is clear, as a ticket on the relevant Objective). Do not let it pass silently.
 
 The Problem sits in `state.md` until the user triages it. Your job is to make the thing visible — not to resolve it on your own.
+
+## On Picking Up a Non-Trivial Task
+
+When a Task ticket requires non-trivial coding, spec authoring, or multi-file changes — you do not write the code yourself. You orchestrate the work across several Execute → Review → Adversarial → Decision cycles, delegating each pass to a fresh `general-purpose` subagent (Agent tool). Trivial edits, single-file documentation, ticket-state transitions, and decision-phase polish stay with you.
+
+**Incremental, not waterfall.** Front-loading the whole decomposition — every sub-subtask spec'd up front before any code lands — is the antipattern. What each cycle reveals about the system, the spec, and the chosen design **rewrites the rest of the plan**. So:
+
+- Only the **next** sub-subtask is described in full detail (brief, scope, deliverable). All others are **sketches** — names + intent, no commitments. They may split, merge, reorder, dissolve, or sprout siblings after the next cycle closes.
+- After each Decision, **re-derive the remainder of the plan against the ticket's purpose, not merely against what's now on disk.** «What did this cycle change in the system» is half the picture; «does the remaining plan still serve why this Task exists» is the other. Do not ratify yesterday's sketch. The Engineering Bar's «Build from need, not from draft» applies to the plan itself, not only to the code.
+- The plan is **alive** — updated after every cycle. The Decision log captures *why* it changed, not only *that* it did.
+- If you can already detail sub-subtasks N+2, N+3, N+4 — that is a signal that the work is more linear than it really is, or that you are pre-committing prematurely. Trust the loop.
+
+**Anchor: ticket purpose lives in a designdoc.** Purpose-anchored re-derivation needs a stable home for the «why this Task, what success looks like, what direction was chosen and why» story. The OBJ-level `## WHAT` / `## WHY` is usually too abstract for ticket-level decomposition; the ticket's one-liner in `## Items` is too thin. So Tasks that go through this pattern almost always also warrant `<TICKET>_designdoc.md` (see [On Recognizing Design Substance](#on-recognizing-design-substance)). The pair is canonical:
+
+- `<TICKET>_designdoc.md` — north star. Frozen concept doc: purpose, alternatives considered, rationale for the chosen direction, the L7 reasoning the cycle keeps measuring against. Edited only when the *concept* shifts, not when implementation advances.
+- `<TICKET>_work/plan.md` — alive plan. Decomposition, decision log, known limitations. Re-edited every cycle.
+
+If you find yourself entering this pattern without a designdoc, create one (or surface that you should) before the first Execute pass. Adversarial passes lose teeth without a stable purpose to probe against.
+
+**Work folder.** Create `<TICKET>_work/` as a sibling of the parent OBJ's `index.md`. Inside it:
+
+- `plan.md` — the engagement protocol (below) + the L7 bar verbatim (every subagent brief embeds it) + the current rolling decomposition (next sub-subtask in detail, others sketched) + a Decision log + known limitations carried forward. Re-edited after every cycle, in full.
+- `<subcode>/` — one folder per sub-subtask (e.g., `T05a/`, `T05b/`). Each holds that sub-subtask's briefs and reports.
+
+**One cycle per sub-subtask** — Execute → Review → Adversarial → optional Fix-pass → your Decision. All four worker passes are fresh `general-purpose` Agent invocations. Agent sessions are not resumable, so each pass gets a self-contained brief on disk that points at all prior artifacts by absolute path.
+
+- **Execute** — implements per `brief.md`, writes `done.md` with status, key decisions, surfaced spec gaps / open questions, test results, departures from spec.
+- **Review** — fresh agent; reads `brief.md` + `done.md` + the spec; runs tests independently; writes `review.md` with verdict `ready | needs-work | blocked`. Honest-absence claims by the executor («no spec gaps», «no open questions») must be empirically verified, not accepted.
+- **Adversarial L7** — fresh agent; reads everything plus production code; probes «where does this break L7 / what did executor + reviewer miss?»; writes `adversarial.md` with verdict `ship-as-is | fix-list-before-close | block-needs-rework`. Worth the round — typically finds real defects the review surfaces only partially.
+- **Fix-pass** (only when adversarial returns a non-empty fix-list) — narrow brief listing the exact file:line changes; explicitly no refactoring. Writes `done-fix.md`.
+- **Decision** — yours. Apply mechanical mini-fixes that don't deserve another agent round (documentation comments, one-line edits, status TODOs). **Re-derive the remainder of the plan in light of what this cycle revealed** — cancel sketches that became unnecessary, split ones that grew, add ones that emerged, reorder by what now matters most. Update `plan.md` with the new decomposition, decision-log entry, and known limitations. Write `<subcode>/decision.md` summarising the cycle. Transition the ticket via MCP `ticket_set_state`.
+
+**Briefs are self-contained.** Each brief includes: context (what's already done, where this fits in the larger plan), absolute paths to specs and code, the L7 bar verbatim, explicit boundaries («don't do X»), deliverable format with required report sections. A fresh agent must be able to start from the brief alone. This is the restart-survivability story — if an agent disconnects mid-stride, the next agent reads the same brief and continues from on-disk state.
+
+**Cockpit-namespace boundary.** This pattern uses the `general-purpose` Agent tool only. Cockpit subagents (those deployed by `install.py` to `.claude/agents/` and run through `subchat`) are a separate runtime with their own contract — do not invoke them via Agent or Task, even though Claude Code's native discovery sees them at the canonical path. Conversely, do not bend `general-purpose` agents into cockpit-subagent shape; they have no subchat folder, no `protocol.md` semantics, no MCP-managed lifecycle.
 
 ## On Proposing Objective Closure
 
@@ -381,7 +418,7 @@ Delegate transcript distillation to the `protocolist` subagent via the subchat c
 
 You do not need to know how the protocolist works internally — its behavior lives in `instructions/subagents/protocolist.md`. Your job is to delegate and surface the stream.
 
-**Never invoke `protocolist` (or any other subagent shipped by the cockpit) via the `Task` tool.** Subagents must run only through the `subchat` component — the Task path bypasses subchat's isolation (separate `.claude/`), logging (`log/NN/`), and live progress streaming, all of which the architecture exists to provide. If a subagent profile ever appears under `.claude/agents/` instead of `.claude/cockpit/subagents/`, treat that as a deploy bug and report it.
+**Never invoke `protocolist` (or any other subagent shipped by the cockpit) via the `Task` tool, even though Claude Code's native discovery surfaces them.** Cockpit subagents live at the canonical `.claude/agents/` path (so `/agents` and `@agent-<name>` see them), but their runtime contract is subchat-only — the Task path bypasses subchat's isolation (separate `.claude/`), logging (`log/NN/`), and live progress streaming, all of which the architecture exists to provide. Native registration is for visibility, not invocation.
 
 ### Backfilling `## PROGRESS` from `protocol.md`
 

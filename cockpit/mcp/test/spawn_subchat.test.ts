@@ -67,9 +67,7 @@ async function makeContextWithSession(): Promise<{
   );
   await fs.mkdir(path.join(root, "objectives"), { recursive: true });
   await fs.mkdir(path.join(root, ".claude", "sessions"), { recursive: true });
-  await fs.mkdir(path.join(root, ".claude", "cockpit", "subagents"), {
-    recursive: true,
-  });
+  await fs.mkdir(path.join(root, ".claude", "agents"), { recursive: true });
 
   const sessionId = "test-sid";
   const sessionFolder = path.join(
@@ -109,13 +107,7 @@ async function writeProfile(
   name: string,
   content: string,
 ): Promise<string> {
-  const p = path.join(
-    contextRoot,
-    ".claude",
-    "cockpit",
-    "subagents",
-    `${name}.md`,
-  );
+  const p = path.join(contextRoot, ".claude", "agents", `${name}.md`);
   await fs.writeFile(p, content);
   return p;
 }
@@ -539,7 +531,7 @@ test("spawn_subchat: missing profile returns a recoverable error pointing at dep
         const msg = err instanceof Error ? err.message : String(err);
         return (
           /subagent profile not found/.test(msg) &&
-          /\.claude\/cockpit\/subagents\/protocolist\.md/.test(msg) &&
+          /\.claude\/agents\/protocolist\.md/.test(msg) &&
           /install\.py/.test(msg) &&
           /deploy\.md/.test(msg)
         );

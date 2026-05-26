@@ -455,7 +455,7 @@ const spawnSubchat = makeTool({
   name: "spawn_subchat",
   description:
     "Materialize a subchat in the current SessionFolder (resolved via session_id). " +
-    "Reads the subagent profile from `<ContextFolder>/.claude/cockpit/subagents/<name>.md` " +
+    "Reads the subagent profile from `<ContextFolder>/.claude/agents/<name>.md` " +
     "(deployed by install.py — see cockpit/specs/deploy.md), creates " +
     "`<SessionFolder>/subchats/<name>/` with `config.yaml` (defaults + profile " +
     "frontmatter overrides) and `system_prompt.md` (profile body), and ensures the " +
@@ -470,7 +470,7 @@ const spawnSubchat = makeTool({
       .min(1)
       .describe(
         "Subagent profile name. Matches the basename of " +
-          "`<ContextFolder>/.claude/cockpit/subagents/<name>.md`. " +
+          "`<ContextFolder>/.claude/agents/<name>.md`. " +
           "Must contain only [A-Za-z0-9_-] and not start with a hyphen.",
       ),
   },
