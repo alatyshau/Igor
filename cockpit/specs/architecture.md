@@ -41,19 +41,21 @@ External inputs (briefs, ТЗ, PDFs, datasets) enter at the leftmost edge and li
 
 Each runtime component has a single focused responsibility. Detailed specs live in dedicated files; this section explains what each component is for and why it exists.
 
-### 4.1 Stop hook
+### 4.1 Hooks
 
-**Responsibility.** Persist every Claude Code turn to disk and maintain the transcript index.
+Two Claude Code hooks together maintain the SessionFolder + SessionStateFile and persist every turn to disk. Both call into a shared `session_bootstrap` module so bootstrap logic stays in lockstep.
 
-**Why it exists.** Claude Code's internal JSONL is opaque and not optimized for agent reads. Without persistence, the agent cannot reliably consult its own past turns, and there is no durable record of work for later sessions, audits, or downstream tooling (chapterizers, protocol generators).
+**UserPromptSubmit hook (`user_prompt_submit.py`).** Fires when the user submits a prompt, *before* the agent begins its turn. Ensures the SessionStateFile and SessionFolder exist for the current `session_id` so the agent has a valid `state.md` to operate on from Turn 1. Idempotent: re-firing is a no-op. On resumed chats (Claude Code generates a new `session_id` for an existing logical chat), reads the JSONL transcript to find `first_prompt_id` and aliases the new SessionStateFile to the original SessionFolder rather than creating a duplicate.
 
-**How.** A single `Stop` hook fires on each turn close, reads `transcript_path` from the payload, writes `NNN_msg.md` files into the SessionFolder's `transcript/`, and maintains `transcript/index.json` + the SessionStateFile.
+**Stop hook (`stop.py`).** Fires when the agent finishes a turn. Walks the JSONL and writes per-turn `NNN_msg.md` files into the SessionFolder's `transcript/`, maintaining `transcript/index.json`. Also acts as the **bootstrap fallback** when UserPromptSubmit is not installed/failed, and backfills `first_prompt_id` into the SessionStateFile when UserPromptSubmit pre-created it without one (the JSONL was empty at UserPromptSubmit time).
 
-**Spec:** [`stop_hook.md`](stop_hook.md).
+**Why they exist.** Claude Code's internal JSONL is opaque and not optimized for agent reads. Without persistence, the agent cannot reliably consult its own past turns, and there is no durable record of work for later sessions, audits, or downstream tooling (chapterizers, protocol generators). Splitting bootstrap from persistence into a pre-turn hook unblocks Turn 1 entity tracking — without UserPromptSubmit, the agent's first turn cannot write `state.md` because the file does not yet exist.
+
+**Spec:** [`stop_hook.md`](stop_hook.md). Shared bootstrap logic lives in `cockpit/hooks/session_bootstrap.py`.
 
 ### 4.2 MCP server
 
-**Responsibility.** Mediate all entity operations on the cockpit's domain (Objectives, sub-entities, session slug).
+**Responsibility.** Mediate all entity operations on the cockpit's domain (Objectives, tickets, session slug).
 
 **Why it exists.** Entity operations carry non-trivial procedural complexity — code allocation, folder conventions, atomic multi-file changes, Blocked-by graph maintenance, cascade rules. Encoding them in the agent's prompt would consume context budget on procedure rather than substance, and would not be atomic. The MCP encapsulates them as named tool calls; the agent reasons about *what* to do, not *how*.
 
@@ -89,11 +91,11 @@ How the components cooperate at runtime in a typical Context:
 
 1. **Context creation.** User invokes `install.py` against a folder. Deploy writes `settings.json`, scaffolds `objectives/` and `journal/`, places the persona at `.claude/output-styles/igor.md`.
 
-2. **Session start.** User opens Claude Code in the Context. Claude Code reads `settings.json`, spawns the MCP server (per-session), loads the persona. The agent is alive.
+2. **Session start.** User opens Claude Code in the Context. Claude Code reads `settings.json`, spawns the MCP server (per-context), loads the persona. The agent is alive.
 
-3. **Each turn.** User sends a message; agent responds. On turn close, Claude Code fires the Stop hook, which writes the turn to `transcript/NNN_msg.md` and updates `index.json`.
+3. **Each turn.** User submits a message → Claude Code fires the **UserPromptSubmit** hook, which ensures the SessionStateFile + SessionFolder exist (creates them on the first turn of a brand-new chat, aliases to the original on a resumed chat). Agent receives the message and responds. On turn close, Claude Code fires the **Stop** hook, which writes the turn to `transcript/NNN_msg.md`, updates `index.json`, and backfills `first_prompt_id` into the SessionStateFile if absent.
 
-4. **Entity operations.** Agent decides to create an Objective, transition a state, allocate a sub-entity code. It calls an MCP tool. The tool atomically writes to `objectives/`. The agent's prompt does not carry the procedural recipe.
+4. **Entity operations.** Agent decides to create an Objective, transition a state, allocate a ticket code. It calls an MCP tool, passing its `CLAUDE_CODE_SESSION_ID` (from env) as the `session_id` argument. The tool atomically writes to `objectives/` or to the current session's `state.md`. The agent's prompt does not carry the procedural recipe.
 
 5. **Subagent delegation.** On user commands like `!протокол`, the agent delegates work to a named subagent. First time: MCP `spawn_subchat(subagent=...)` materializes `<SessionFolder>/subchats/<name>/` with `config.yaml` + `system_prompt.md`. Then (and on subsequent invocations) the agent runs `subchat --subagent <name> --msg "<verbatim user command>"` via the Monitor mechanism. Subchat spawns `claude -p` in the SessionFolder (isolated from Igor's `.claude/`), streams progress events to stdout. The agent watches the stream and surfaces it to the user. The subagent's output (chapter-files, `protocol.md`, etc.) appears in the SessionFolder; OBJ-level state (`## PROGRESS` sections) is updated by the main agent later, on user request — not by the subagent.
 
@@ -120,6 +122,9 @@ Igor.source.git/
       schemas/                     ← on-disk folder layouts
     mcp/                           ← MCP implementation (TypeScript, Node v22+)
     hooks/                         ← Claude Code hooks (Python)
+      session_bootstrap.py         ← shared SessionStateFile + SessionFolder bootstrap
+      user_prompt_submit.py        ← pre-turn hook (ensures state.md before agent's Turn 1)
+      stop.py                      ← post-turn hook (persist transcript + late-fill first_prompt_id)
     deploy/                        ← install.py + settings.template.json
     subchat/                       ← subchat CLI (Python)
   instructions/                    ← agent persona + skills (deployed, not part of runtime)

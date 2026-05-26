@@ -48,7 +48,7 @@ Slugs (for SessionFolder and for per-turn files alike) follow the same rules as 
 
 State.md exists for two reasons:
 
-1. **Reconstruction.** Re-computing the live list of Problems and their sub-entities by scanning every turn file of a long chat is expensive and error-prone, especially when items are revised often. A serialized snapshot is cheaper to read and reason about.
+1. **Reconstruction.** Re-computing the live list of Problems and their tickets by scanning every turn file of a long chat is expensive and error-prone, especially when items are revised often. A serialized snapshot is cheaper to read and reason about.
 2. **Session scope.** Which Objectives are in scope for this session, and at what engagement mode, lives nowhere else — neither the Objective file nor the transcript captures this naturally.
 
 ### File structure
@@ -78,7 +78,7 @@ State.md exists for two reasons:
 
 - **`## Input`** — *(optional)* — references to external inputs the session consumes. Omit if empty.
 - **`## Scope`** — list of Objectives in session scope, with engagement mode in brackets. Engagement modes: `draft` / `what|why` / `how` / `work`. Modes are described in `domain-model.md` §2.3.
-- **`## Problems`** — list of Problems (chat-only, session-scoped) with their sub-entities nested as indented bullets. Each line: `<code> <Slug> (<state>) — <short note>`.
+- **`## Problems`** — list of Problems (chat-only, session-scoped) with their tickets nested as indented bullets. Each line: `<code> <Slug> (<state>) — <short note>`.
 - **`## Subchats`** — *(optional)* — list of subagents materialized in this session's `subchats/` folder. Each line: `<subagent-name> (<state>)`. States: `active` / `terminated`. Written by MCP `spawn_subchat`; not modified by subchat runs. One subchat per subagent name per session. See `cockpit/specs/subchat.md` for subagent semantics. Omit the section if no subchats are active.
 
 ### Section ownership
@@ -90,7 +90,7 @@ State.md exists for two reasons:
 | `## Input` | Igor (agent) | Free-form prose. |
 | `## Scope` | Igor (agent) | Engagement mode and per-OBJ scope. |
 | `## Problems` (parent bullets, prose) | Igor (agent) | Problem-level bullets (slug, state, short note). |
-| `## Problems` (sub-entity sub-bullets) | MCP via `sub_entity_create` / `sub_entity_set_state` for Problem-parent calls | Sub-bullets with `Pn.In` / `Pn.Sn` / `Pn.Tn` codes and their `(state)` markers are mutated by MCP, not Igor. The text after `—` is Igor-owned. |
+| `## Problems` (ticket sub-bullets) | MCP via `ticket_create` / `ticket_set_state` for Problem-parent calls | Sub-bullets with `Pn.In` / `Pn.Sn` / `Pn.Tn` codes and their `(state)` markers are mutated by MCP, not Igor. The text after `—` is Igor-owned. |
 | `## Subchats` | MCP via `spawn_subchat` | Igor never edits this section. |
 
 **Merge-preserving discipline.** Every writer reads the current `state.md`, modifies only its own section(s), and writes back atomically (temp + `os.replace`). Sections owned by another writer are preserved verbatim — including their position, headers, and content. Adding a new section requires explicit ownership assignment in this table; until then, no writer may emit it.
@@ -105,15 +105,16 @@ The leading code (`P1.I02`) and the parenthesised state (`(open)`) are MCP-owned
 
 ### Lifecycle
 
-- The agent updates `state.md` continuously as Problems are flagged / triaged / canceled, sub-entities created / closed / canceled, and the session scope shifts.
-- `canceled` Problems and `canceled` sub-entities **may be removed** from `state.md` to keep the context lean. Their history remains recoverable from the `transcript/` (and through change-log lines emitted at the moment of state change).
+- **Creation.** `state.md` is created with an empty scaffold (`## Input` / `## Scope` / `## Problems` all `*пусто*`) by the UserPromptSubmit hook before the agent's first turn — see [`../stop_hook.md`](../stop_hook.md) §Bootstrap responsibility. If UserPromptSubmit is not installed, Stop creates it as a fallback after the first turn.
+- The agent updates `state.md` continuously as Problems are flagged / triaged / canceled, tickets created / closed / canceled, and the session scope shifts.
+- `canceled` Problems and `canceled` tickets **may be removed** from `state.md` to keep the context lean. Their history remains recoverable from the `transcript/` (and through change-log lines emitted at the moment of state change).
 - At session end, `state.md` is left as-is — it is the session's last live snapshot. Untriaged Problems remaining there are lost (per the Problem's ephemeral semantics).
 
 ### Why this is not the source of truth
 
 `state.md` is a **derived cache**, not the canonical record:
 
-- For Objective state and sub-entities — the OBJ folder is the source of truth (`obj_folder.md`).
+- For Objective state and tickets — the OBJ folder is the source of truth (`obj_folder.md`).
 - For "what was said in the session" — the `transcript/` is the source of truth.
 - For Problems — the chat itself, supplemented by change-log lines, is the source of truth; `state.md` is the live index.
 

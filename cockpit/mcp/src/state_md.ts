@@ -108,3 +108,130 @@ export async function writeStateMd(sessionFolder: string, content: string): Prom
   const p = path.join(sessionFolder, "state.md");
   await atomicWriteText(p, content);
 }
+
+// ---------------------------------------------------------------------------
+// ## Subchats — MCP-owned section, written by spawn_subchat
+// ---------------------------------------------------------------------------
+//
+// Format (see schemas/session_folder.md §Sections):
+//
+//   ## Subchats
+//   - protocolist (active)
+//
+// Section ownership: this section is mutated only by MCP `spawn_subchat`.
+// Igor never edits it. Other sections (`## Input`, `## Scope`, `## Problems`)
+// are preserved verbatim by this function — merge-preserving discipline.
+
+const SUBCHATS_HEADING = "## Subchats";
+
+/** Re-spawn policy for a line that already lists the named subagent with a
+ *  state other than ``active`` (i.e., ``terminated``).
+ *
+ *  Choice: re-spawn reactivates. ``spawn_subchat`` regenerates config.yaml
+ *  and system_prompt.md from the current profile — semantically this is a
+ *  fresh start for the subagent, so the section state should reflect that.
+ *  The alternative (preserve the previous state) would leave the section
+ *  contradicting the on-disk reality (active config, "terminated" label).
+ *  Documented in T05b/done.md §Key decisions. */
+const SUBCHAT_REACTIVATE_ON_RESPAWN = true;
+
+/** Ensure a ``- <name> (active)`` bullet exists in the ``## Subchats``
+ *  section of ``content``. Idempotent: no-op if the line is already there
+ *  with state ``active``. Creates the section if it is absent.
+ *
+ *  Other sections of ``state.md`` are returned verbatim. Returns the (new)
+ *  full file content; the caller writes it atomically via ``writeStateMd``. */
+export function ensureSubchatLine(content: string, subagent: string): string {
+  // Known limitation (T05b adversarial Finding 3): the regex anchors at the
+  // start of line with no leading-whitespace allowance, so a pre-existing
+  // indented bullet like "  - protocolist (active)" would not match and a
+  // duplicate column-0 bullet would be inserted. Safe in practice because
+  // `## Subchats` is MCP-owned per schemas/session_folder.md §Section ownership
+  // — only this function writes it, and it always emits column-0 bullets.
+  // Harden to `/^\s*- .../m` if hand-edited state.md ever needs tolerance.
+  const lineRe = new RegExp(
+    `^- ${escapeRe(subagent)}\\s*\\(([^)]+)\\)\\s*$`,
+    "m",
+  );
+
+  const section = findSection(content, SUBCHATS_HEADING);
+  if (section === null) {
+    return appendSubchatsSection(content, subagent);
+  }
+
+  const sectionText = content.slice(section.bodyStart, section.bodyEnd);
+  const match = lineRe.exec(sectionText);
+  if (match) {
+    if (match[1] === "active") return content; // already active — no-op
+    if (!SUBCHAT_REACTIVATE_ON_RESPAWN) return content;
+    // Reactivate: rewrite this line's state to ``active`` while leaving
+    // every other line and section verbatim.
+    const before = content.slice(0, section.bodyStart);
+    const after = content.slice(section.bodyEnd);
+    const newSection = sectionText.replace(
+      lineRe,
+      `- ${subagent} (active)`,
+    );
+    return before + newSection + after;
+  }
+
+  // Section present, line absent — insert at end of section block.
+  return insertLineAtSectionEnd(content, section, `- ${subagent} (active)`);
+}
+
+interface SectionRange {
+  /** Index where the section's body starts (immediately after the heading
+   *  line's trailing newline). */
+  bodyStart: number;
+  /** Index where the section's body ends — at the next ``## ``-prefixed
+   *  heading, or the end of file. */
+  bodyEnd: number;
+}
+
+function findSection(content: string, heading: string): SectionRange | null {
+  const headingRe = new RegExp(`^${escapeRe(heading)}\\s*$`, "m");
+  const m = headingRe.exec(content);
+  if (!m) return null;
+  // Body starts after the heading line + its newline (if any).
+  let bodyStart = m.index + m[0].length;
+  if (content[bodyStart] === "\n") bodyStart += 1;
+  // Body ends at the next ``## `` heading or EOF.
+  const rest = content.slice(bodyStart);
+  const nextRe = /^## /m;
+  const next = nextRe.exec(rest);
+  const bodyEnd = next ? bodyStart + next.index : content.length;
+  return { bodyStart, bodyEnd };
+}
+
+function insertLineAtSectionEnd(
+  content: string,
+  section: SectionRange,
+  line: string,
+): string {
+  // Known limitation (T05b adversarial Finding 2): inserted line endings are
+  // hardcoded LF. If `content` uses CRLF (e.g., a state.md hand-edited on
+  // Windows), the result is mixed-EOL. Non-blocking today: state.md is
+  // created with LF by the UserPromptSubmit hook (see schemas/session_folder.md
+  // §Lifecycle); CRLF arises only via cross-platform hand-editing, which is
+  // discouraged on MCP-owned sections. Mirror the dominant EOL of `content`
+  // here if hand-edited Windows-style state.md ever becomes a supported
+  // surface.
+  const before = content.slice(0, section.bodyEnd);
+  const after = content.slice(section.bodyEnd);
+  // Trim any trailing blank lines on the section body so the new bullet sits
+  // tight against the existing entries; preserve them after the inserted line.
+  const trimmed = before.replace(/\n*$/, "");
+  return `${trimmed}\n${line}\n${after.startsWith("\n") ? after : (after ? "\n" + after : "")}`;
+}
+
+function appendSubchatsSection(content: string, subagent: string): string {
+  // Append at end of file, separated by a single blank line from prior
+  // content. Placement note: schemas/session_folder.md shows the section
+  // after ``## Problems`` in its example layout, but the section is optional
+  // and the spec does not mandate placement. End-of-file keeps the insertion
+  // simple and never disturbs surrounding sections — documented in
+  // T05b/done.md §Key decisions.
+  const trimmed = content.replace(/\n*$/, "");
+  const sep = trimmed === "" ? "" : "\n\n";
+  return `${trimmed}${sep}${SUBCHATS_HEADING}\n- ${subagent} (active)\n`;
+}

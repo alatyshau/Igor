@@ -4,7 +4,11 @@ Specification of the single Claude Code hook that persists session transcripts a
 
 ## Purpose
 
-The Stop hook turns Claude Code's in-process JSONL into a durable, agent-readable on-disk record. On each fire it reconstructs the transcript including the first turn, writes per-turn files, maintains `index.json`, and self-bootstraps the SessionStateFile pointer.
+The Stop hook turns Claude Code's in-process JSONL into a durable, agent-readable on-disk record. On each fire it reconstructs the transcript including the first turn, writes per-turn files, and maintains `index.json`.
+
+The hook also acts as the **bootstrap fallback** for the SessionStateFile: if no other component has created it yet (typically the UserPromptSubmit hook would, see *Bootstrap responsibility* below), Stop creates it on its first fire. If the SessionStateFile was pre-created by UserPromptSubmit *before* any user prompt was visible in the JSONL (so `first_prompt_id` is absent), Stop backfills it.
+
+Bootstrap logic — both branches — is shared with `user_prompt_submit.py` via the `session_bootstrap` module so the two hooks stay in lockstep.
 
 The hook is **idempotent** — re-firing on an unchanged JSONL is a no-op. It performs no domain logic on Objectives or any other entities.
 
@@ -135,8 +139,8 @@ Schema:
 
 Fields:
 
-- `session_folder` — absolute path to the SessionFolder for this `session_id`.
-- `first_prompt_id` — `prompt_id` of the first user turn. On resumed chats: Claude Code assigns a new `session_id`, but the first prompt's UUID is stable. On bootstrap the hook scans existing SessionFolders' `index.json` for a matching `turns[0].prompt_id` and reuses the folder.
+- `session_folder` — absolute path to the SessionFolder for this `session_id`. Always present.
+- `first_prompt_id` — `prompt_id` of the first user turn. On resumed chats: Claude Code assigns a new `session_id`, but the first prompt's UUID is stable. On bootstrap the writing hook scans existing SessionFolders' `index.json` for a matching `turns[0].prompt_id` and reuses the folder. **May be absent** when the UserPromptSubmit hook bootstrapped the file before any user prompt was visible in the JSONL — in that case the Stop hook backfills it on its first fire (see *Bootstrap responsibility* below).
 
 Derivable elsewhere (so not stored here):
 
@@ -147,13 +151,27 @@ The MCP `rename_current_session` tool updates `session_folder` after `mv`-ing th
 
 Alias bootstrap repair: on every fire, after locating its target SessionFolder, the hook compares its own SessionStateFile `session_folder` field against reality (does the path exist?). If the path is missing while the SessionFolder it should point at can be reached by `first_prompt_id` scan, the hook self-heals — rewrites the alias to the live path. This covers cases where a rename happened while this `session_id` was offline.
 
+## Bootstrap responsibility
+
+Two hooks may create the SessionStateFile + SessionFolder; they share `session_bootstrap.py`. The intent is that **UserPromptSubmit always wins** (it fires before the agent sees the message, so `state.md` is ready for Turn 1), and Stop is the **fallback** for when UserPromptSubmit is not registered, failed, or fired before the JSONL had any turns visible.
+
+Both hooks call `session_bootstrap.ensure_session_state(context_root, session_id, first_prompt_id?, first_prompt_at?)`. It is idempotent: if the SessionStateFile already exists, it returns the parsed content untouched. Otherwise:
+
+- if `first_prompt_id` is supplied, scan existing SessionFolders for a match (`first_prompt_id` survives resume; new `session_id` aliases the existing folder);
+- otherwise create a fresh `journal/YYYY/MM/DD/HHMM_session/` using `first_prompt_at` (or `now()` when unknown).
+
+Folder name HHMM may differ by seconds depending on which hook bootstrapped — irrelevant, the folder name is a label, not a key.
+
+### Late-fill of `first_prompt_id`
+
+When UserPromptSubmit bootstraps a brand-new chat, the JSONL is empty at hook-fire time and the written SessionStateFile has no `first_prompt_id`. On its first fire, after locating turns, Stop calls `session_bootstrap.fill_missing_first_prompt_id(sessions_dir, session_id, turns[0].prompt_id)` to atomically backfill the marker. Subsequent fires are no-ops on this branch (the field is already set).
+
 ## Lifecycle
 
-1. **First fire (bootstrap).** No SessionStateFile exists yet. The hook reads the JSONL, takes `turns[0].prompt_id` as `first_prompt_id` and `turns[0].started_at` as `first_prompt_at`, then:
-   - scans `journal/YYYY/MM/DD/*/transcript/index.json` using **`YYYY/MM/DD` derived from `first_prompt_at`** (not from the current wall clock), so a chat resumed on a later day still locates its original folder created earlier;
-   - if a folder whose `turns[0].prompt_id` matches `first_prompt_id` is found → **reuse** (resumed-chat detection); the hook writes a *new* SessionStateFile under the new `session_id` pointing at the existing folder — multiple `.claude/sessions/<session_id>.json` aliases pointing at the same `session_folder` are allowed and expected;
-   - otherwise creates `journal/YYYY/MM/DD/HHMM_session/` using the date and time of `first_prompt_at`;
-   - writes the minimal SessionStateFile.
+1. **First fire (bootstrap or reconcile).**
+   - If no SessionStateFile exists yet, Stop runs the bootstrap fallback through `session_bootstrap.ensure_session_state` (extracting `first_prompt_id` and `first_prompt_at` from the JSONL it just parsed). This handles the case where UserPromptSubmit is not registered.
+   - If the SessionStateFile already exists (UserPromptSubmit got there first) but lacks `first_prompt_id`, Stop backfills it (see *Late-fill of `first_prompt_id`* above).
+   - In both branches the folder scaffold (`state.md`, `transcript/index.json`) is materialised before transcript reconciliation proceeds.
 2. **Subsequent fires.** Reads the SessionStateFile, walks the JSONL, computes the desired per-turn files, and reconciles.
 
 ## Reconciliation triggers

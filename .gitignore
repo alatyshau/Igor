@@ -13,6 +13,7 @@ __pycache__/
 # Test artifacts (in case stray paths leak into the repo)
 /cockpit/hooks/journal/
 /cockpit/hooks/.claude/
+/cockpit/e2e/tmp/
 
 # Node / TS (for cockpit/mcp/ later)
 node_modules/

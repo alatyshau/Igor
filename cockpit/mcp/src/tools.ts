@@ -1,4 +1,6 @@
-// MCP tool definitions for the cockpit. See cockpit/specs/architecture.md §3.
+// MCP tool definitions for the cockpit. See cockpit/specs/architecture.md §3
+// and cockpit/specs/mcp.md §Transport and lifecycle for the session_id
+// parameter contract.
 
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
@@ -42,17 +44,18 @@ import { atomicWriteText } from "./fs_atomic.js";
 import {
   loadContext,
   loadSessionStateFile,
-  currentSessionId,
   type ContextPaths,
 } from "./context.js";
 import {
   appendProblemTicket,
+  ensureSubchatLine,
   isValidProblemCode,
   nextProblemTicketCode,
   readStateMd,
   setProblemTicketState,
   writeStateMd,
 } from "./state_md.js";
+import { materializeSubchat } from "./subchat_spawn.js";
 
 export interface ToolDeps {
   ctx: ContextPaths;
@@ -78,6 +81,26 @@ function fail(message: string): CallToolResult {
   return { isError: true, content: [{ type: "text", text: message }] };
 }
 
+/**
+ * Shared Zod field for the session_id parameter on every tool. The agent
+ * sources this from its own CLAUDE_CODE_SESSION_ID env var and passes it
+ * uniformly to every MCP call. Tools that need to resolve the current
+ * SessionFolder consume it; tools that operate only on Objectives accept
+ * it for shape uniformity and ignore it.
+ *
+ * Background: MCP's stdio transport bakes env at spawn time, but session_id
+ * is per-chat and shifts on resume. process.env is therefore the wrong
+ * transport for session_id — see cockpit/specs/mcp.md.
+ */
+const SESSION_ID_FIELD = z
+  .string()
+  .min(1)
+  .describe(
+    "Caller's CLAUDE_CODE_SESSION_ID. Required uniformly on every tool. " +
+      "Session-aware tools (rename_current_session, ticket_* on Problem parents) " +
+      "use it to resolve the SessionStateFile; other tools accept it for shape uniformity.",
+  );
+
 // ---- tools ----
 
 const objectiveCreate = makeTool({
@@ -87,6 +110,7 @@ const objectiveCreate = makeTool({
     "directly in the subfolder matching `initial_state` (active for draft/open, " +
     "`backlog/` for backlog). Returns the assigned code and folder path.",
   shape: {
+    session_id: SESSION_ID_FIELD,
     slug: z.string().describe("CamelCase or snake_case; no dashes or dots."),
     goal: z.string().describe("Цель — desired outcome, one paragraph."),
     outputs: z.array(z.string()).default([]).describe(
@@ -161,6 +185,7 @@ const objectiveSetState = makeTool({
     "Move an Objective between states. Relocates the folder to the matching subdir " +
     "(active / closed / cancelled / backlog). On `canceled`, cascades open tickets to `canceled`.",
   shape: {
+    session_id: SESSION_ID_FIELD,
     code: z.string(),
     new_state: z.enum(["draft", "open", "closed", "canceled", "backlog"]),
   },
@@ -207,6 +232,7 @@ const objectiveSetBlockedBy = makeTool({
   description:
     "Replace the Blocked-by list on an Objective. Validates each referenced code exists and that no cycle would be introduced.",
   shape: {
+    session_id: SESSION_ID_FIELD,
     code: z.string(),
     blocked_by: z.array(z.string()),
   },
@@ -242,15 +268,17 @@ const ticketCreate = makeTool({
   description:
     "Create a ticket (Issue I / Suggestion S / Task T) under an Objective or a Problem. " +
     "For Objective parents (`OBJxxx`), appends to the OBJ's `## Items` in its `index.md`. " +
-    "For Problem parents (`P1..P9`), appends a nested bullet under that Problem in the session's `state.md`.",
+    "For Problem parents (`P1..P9`), appends a nested bullet under that Problem in the " +
+    "session's `state.md` — `session_id` is required to locate the right session.",
   shape: {
+    session_id: SESSION_ID_FIELD,
     parent: z.string().describe("OBJxxx code or P1..P9 Problem code"),
     type: z.enum(["I", "S", "T"]),
     slug: z.string(),
     description: z.string().default(""),
     state: z.string().default("open"),
   },
-  handler: async ({ parent, type, slug, description, state }, deps) => {
+  handler: async ({ session_id, parent, type, slug, description, state }, deps) => {
     const t = type as TicketType;
     assertValidSlug(slug);
     if (!isValidStateForType(t, state)) {
@@ -271,7 +299,7 @@ const ticketCreate = makeTool({
     }
 
     if (isValidProblemCode(parent)) {
-      const sessionFile = await loadSessionStateFile(deps.ctx);
+      const sessionFile = await loadSessionStateFile(deps.ctx, session_id);
       const stateMd = await readStateMd(sessionFile.session_folder);
       const code = nextProblemTicketCode(stateMd, parent, t);
       const next = appendProblemTicket(stateMd, parent, {
@@ -294,13 +322,15 @@ const ticketSetState = makeTool({
   description:
     "Transition a ticket's state. Validates the target state against the entity type's " +
     "state machine (Issue → closed|canceled, Suggestion → confirmed|canceled, Task → closed|canceled). " +
-    "Works for both Objective-parented and Problem-parented tickets.",
+    "Works for both Objective-parented and Problem-parented tickets — for the latter, " +
+    "`session_id` is required to locate the right session.",
   shape: {
+    session_id: SESSION_ID_FIELD,
     parent: z.string(),
     code: z.string(),
     new_state: z.string(),
   },
-  handler: async ({ parent, code, new_state }, deps) => {
+  handler: async ({ session_id, parent, code, new_state }, deps) => {
     const { type } = parseTicketCode(code);
     if (!isValidStateForType(type, new_state)) {
       throw new Error(`invalid state ${new_state} for type ${type}`);
@@ -317,7 +347,7 @@ const ticketSetState = makeTool({
     }
 
     if (isValidProblemCode(parent)) {
-      const sessionFile = await loadSessionStateFile(deps.ctx);
+      const sessionFile = await loadSessionStateFile(deps.ctx, session_id);
       const stateMd = await readStateMd(sessionFile.session_folder);
       const next = setProblemTicketState(stateMd, parent, code, new_state);
       await writeStateMd(sessionFile.session_folder, next);
@@ -331,15 +361,17 @@ const ticketSetState = makeTool({
 const renameCurrentSession = makeTool({
   name: "rename_current_session",
   description:
-    "Rename the current SessionFolder's slug. Moves the folder and updates the SessionStateFile atomically. " +
-    "Preserves the `HHMM_` prefix.",
+    "Rename the current SessionFolder's slug. Moves the folder and updates every " +
+    "SessionStateFile alias whose `session_folder` matches the old path (resumed " +
+    "chats produce multiple aliases pointing at one folder). Atomic across all " +
+    "aliases. Preserves the `HHMM_` prefix.",
   shape: {
+    session_id: SESSION_ID_FIELD,
     new_slug: z.string(),
   },
-  handler: async ({ new_slug }, deps) => {
+  handler: async ({ session_id, new_slug }, deps) => {
     assertValidSlug(new_slug);
-    const sessionId = currentSessionId();
-    const sessionFile = await loadSessionStateFile(deps.ctx, sessionId);
+    const sessionFile = await loadSessionStateFile(deps.ctx, session_id);
     const oldFolder = sessionFile.session_folder;
     const dayDir = path.dirname(oldFolder);
     const oldName = path.basename(oldFolder);
@@ -352,11 +384,117 @@ const renameCurrentSession = makeTool({
     if (newFolder === oldFolder) {
       return { session_folder: oldFolder, note: "slug unchanged" };
     }
+
+    // Locate every SessionStateFile alias pointing at the old folder before
+    // the rename — resumed chats produce multiple aliases pointing at one
+    // folder, and leaving stale aliases would mean later resumes silently
+    // land on a non-existent path.
+    const aliases = await findAliasesByFolder(deps.ctx.sessionsDir, oldFolder);
+    if (aliases.length === 0) {
+      // Shouldn't happen — at minimum the caller's own SessionStateFile
+      // points at oldFolder — but be defensive.
+      aliases.push(path.join(deps.ctx.sessionsDir, `${session_id}.json`));
+    }
+
     await fs.rename(oldFolder, newFolder);
-    const updated = { ...sessionFile, session_folder: newFolder };
-    const stateFilePath = path.join(deps.ctx.sessionsDir, `${sessionId}.json`);
-    await atomicWriteText(stateFilePath, JSON.stringify(updated, null, 2) + "\n");
-    return { session_folder: newFolder, previous: oldFolder };
+    for (const aliasPath of aliases) {
+      try {
+        const raw = await fs.readFile(aliasPath, "utf8");
+        const parsed = JSON.parse(raw);
+        parsed.session_folder = newFolder;
+        await atomicWriteText(aliasPath, JSON.stringify(parsed, null, 2) + "\n");
+      } catch (e) {
+        // One bad alias shouldn't fail the rename; log via thrown context.
+        // The folder is already moved, so subsequent reads against this alias
+        // would fail clearly with "folder does not exist".
+        console.error(`[rename_current_session] failed to update alias ${aliasPath}: ${e}`);
+      }
+    }
+
+    return {
+      session_folder: newFolder,
+      previous: oldFolder,
+      aliases_updated: aliases.length,
+    };
+  },
+});
+
+/**
+ * Find every SessionStateFile in ``sessionsDir`` whose ``session_folder``
+ * field equals ``folderPath``. Used by rename_current_session to update all
+ * aliases produced by resumed chats in one atomic sweep.
+ */
+async function findAliasesByFolder(
+  sessionsDir: string,
+  folderPath: string,
+): Promise<string[]> {
+  const result: string[] = [];
+  let entries: string[];
+  try {
+    entries = await fs.readdir(sessionsDir);
+  } catch {
+    return result;
+  }
+  for (const name of entries) {
+    if (!name.endsWith(".json")) continue;
+    const full = path.join(sessionsDir, name);
+    try {
+      const raw = await fs.readFile(full, "utf8");
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.session_folder === folderPath) {
+        result.push(full);
+      }
+    } catch {
+      // skip unreadable / malformed alias files
+    }
+  }
+  return result;
+}
+
+const spawnSubchat = makeTool({
+  name: "spawn_subchat",
+  description:
+    "Materialize a subchat in the current SessionFolder (resolved via session_id). " +
+    "Reads the subagent profile from `<ContextFolder>/.claude/cockpit/subagents/<name>.md` " +
+    "(deployed by install.py — see cockpit/specs/deploy.md), creates " +
+    "`<SessionFolder>/subchats/<name>/` with `config.yaml` (defaults + profile " +
+    "frontmatter overrides) and `system_prompt.md` (profile body), and ensures the " +
+    "subagent line `- <name> (active)` is present in `state.md` `## Subchats`. " +
+    "Overwrite semantics on re-spawn: `config.yaml` and `system_prompt.md` are " +
+    "regenerated; `session.json` and `log/` are left intact. Errors: missing profile " +
+    "returns a recoverable error pointing the caller at deploy.md.",
+  shape: {
+    session_id: SESSION_ID_FIELD,
+    subagent: z
+      .string()
+      .min(1)
+      .describe(
+        "Subagent profile name. Matches the basename of " +
+          "`<ContextFolder>/.claude/cockpit/subagents/<name>.md`. " +
+          "Must contain only [A-Za-z0-9_-] and not start with a hyphen.",
+      ),
+  },
+  handler: async ({ session_id, subagent }, deps) => {
+    const sessionFile = await loadSessionStateFile(deps.ctx, session_id);
+    const result = await materializeSubchat({
+      contextRoot: deps.ctx.root,
+      sessionFolder: sessionFile.session_folder,
+      subagent,
+    });
+
+    // Update state.md ## Subchats — merge-preserving (other sections untouched).
+    const stateMd = await readStateMd(sessionFile.session_folder);
+    const next = ensureSubchatLine(stateMd, subagent);
+    if (next !== stateMd) {
+      await writeStateMd(sessionFile.session_folder, next);
+    }
+
+    return {
+      subagent,
+      subchat_folder: result.subchatFolder,
+      created: result.created,
+      ignored_profile_keys: result.ignoredProfileKeys,
+    };
   },
 });
 
@@ -367,6 +505,7 @@ export const ALL_TOOLS = [
   ticketCreate,
   ticketSetState,
   renameCurrentSession,
+  spawnSubchat,
 ];
 
 export async function initializeDeps(): Promise<ToolDeps> {
